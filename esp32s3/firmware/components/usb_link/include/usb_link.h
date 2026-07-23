@@ -14,6 +14,7 @@
 #include <stdint.h>
 
 #include "bridge_core.h"
+#include "esp_err.h"
 
 #ifdef __cplusplus
 extern "C" {
