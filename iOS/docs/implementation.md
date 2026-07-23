@@ -19,7 +19,9 @@ protocol knowledge lives here**. This library therefore owns:
 
 Non-goals (v1): audio, waterfall/spectrum, rig memory management, CW paddle
 timing (a system non-goal — see esp32s3 plan §1), multi-radio simultaneous
-sessions, watchOS/tvOS.
+sessions, watchOS/tvOS, and **split/VFO-B operation** (state models VFO-A
+only in v1; `IF;` already carries what a later split feature needs, so this
+is scope control, not an architectural door closing).
 
 **Platforms:** iOS 17+, macOS 14+ (macOS matters: it lets the entire test
 suite run under `swift test` on CI without a simulator, and enables a future
@@ -77,31 +79,44 @@ Linux-less macOS CI runner and in previews. `CATBridgeBLE` is a thin adapter.
 ```swift
 import CATBridgeKit
 
+// 0. ONE CBCentralManager for the process, owned by the library.
+//    CoreBluetooth peripherals are only usable by the central that
+//    discovered them, so scanning and connecting MUST share a central —
+//    a scanner and a session with separate managers is a broken design.
+let central = CATBridgeCentral()            // long-lived; app owns one
+
 // 1. Discover bridges (each advertises the service UUID; protocol.md §1)
-for await found in BridgeScanner().bridges {          // AsyncStream<DiscoveredBridge>
-    // found.name == "CATBridge-3F2A", found.rssi
+for await found in central.bridges() {      // AsyncStream<DiscoveredBridge>
+    // found.name == "CATBridge-3F2A", found.rssi, found.id (UUID)
 }
 
-// 2. Connect — returns a ready session or throws a typed error
-let session = try await TransceiverSession.connect(to: found)
+// 2. Connect — returns a ready session or throws a typed error.
+//    Also accepts a persisted identifier (UserDefaults) for auto-reconnect
+//    on later launches via retrievePeripherals(withIdentifiers:).
+let session = try await central.connect(to: found)          // or (id: UUID)
 
 // 3. Observe state (SwiftUI-ready)
-@Observable final class TransceiverState {
-    var connection: ConnectionPhase        // .scanning/.connecting/.ready/.reconnecting…
-    var radio: RadioModel?                 // .ft891 / .ftx1 / .qmx / .generic(…)
-    var frequency: Frequency?              // typed Hz wrapper, VFO-A
-    var mode: OperatingMode?               // .lsb/.usb/.cw/.cwR/.am/.fm/.data(…)
-    var isTransmitting: Bool
-    var sMeter: SignalLevel?
-    var bridge: BridgeHealth               // baud, drops, fw version, heap (STATUS)
+@MainActor @Observable public final class TransceiverState {
+    public private(set) var connection: ConnectionPhase
+    public private(set) var radio: RadioModel?     // .ft891/.ftx1/.qmx/.generic
+    public private(set) var frequency: Frequency?  // VFO-A, integer Hz core
+    public private(set) var mode: OperatingMode?
+    public private(set) var isTransmitting: Bool
+    public private(set) var sMeter: SignalLevel?
+    public private(set) var bridge: BridgeHealth   // baud, drops, fw, heap
 }
-session.state                               // the @Observable instance
-session.stateUpdates                        // AsyncStream<TransceiverState> mirror
+session.state          // `nonisolated let`: reference from anywhere,
+                       // property access on MainActor (where SwiftUI lives)
+session.snapshots      // AsyncStream<TransceiverSnapshot> — an immutable
+                       // Sendable VALUE copy per update, for non-UI consumers
+                       // (never the mutable reference type across actors)
 
 // 4. Control — async, throws, cancellation-safe
-try await session.setFrequency(.mhz(14.250))
+try await session.setFrequency(Frequency(hz: 14_250_000))
+try await session.setFrequency(.megahertz(14.250))  // convenience; documented
+                                                    // round-to-nearest-Hz
 try await session.setMode(.cw)
-try await session.transmit()               // arms failsafe FIRST, then keys (§8)
+try await session.transmit()               // failsafe interlock, §7.4
 try await session.receive()
 let freq = try await session.readFrequency()
 try await session.send(keyerText: "CQ CQ DE …")   // where supported
@@ -110,7 +125,7 @@ try await session.send(keyerText: "CQ CQ DE …")   // where supported
 if session.capabilities.contains(.rfPowerControl) { … }
 
 // 6. Escape hatch for power users: raw CAT with the same serialization
-let reply = try await session.rawCommand("EX0301;", expectsReply: true)
+let reply: Data = try await session.rawCommand("EX0301;", expectsReply: true)
 ```
 
 Design points:
@@ -118,14 +133,25 @@ Design points:
 - `TransceiverSession` is an **actor**. All radio I/O serializes through it —
   that is the concurrency model *and* the CAT correctness model (one in-flight
   command per radio; CAT has no framing to interleave replies).
-- The `@Observable` state object is @MainActor-isolated and updated by the
-  session; SwiftUI redraws granularly via Observation tracking.
+- `TransceiverState` is `@MainActor @Observable`; the session publishes to it
+  by hopping to the main actor per coalesced update. It is exposed as a
+  `nonisolated let`, which is safe precisely because every property access is
+  MainActor-gated. Cross-actor consumers use `snapshots` (immutable value
+  type) — the mutable reference type never crosses an isolation boundary.
+- `Frequency` stores **integer hertz** (`UInt64`) — CAT is integer-Hz on the
+  wire and `Double` cannot represent 14.250 MHz exactly. Floating-point
+  conveniences round to nearest Hz and say so in their docs.
+- `TransceiverSession.init(transport: some BridgeTransport, …)` is **public**:
+  it is how the test suite injects `ScriptedTransport`, and how an app could
+  bring its own transport (e.g. a TCP link to rigctld) without touching BLE.
 - Every control call is **cancellable** (Task cancellation propagates to a
-  dequeued-or-abandoned command) and has a per-command timeout.
+  dequeued-or-abandoned command) and has a per-command deadline.
 - `RadioModel` derives from the bridge's `STATUS.radio_id` (protocol.md §3),
   refined by the CAT `ID;` reply (`0650` FT-891, `020` TS-480-family QMX,
   FTX-1 TBD — see esp32s3 references). The dialect is selected internally;
   apps never handle dialects directly.
+- `central.bridges()` returns a fresh single-consumer stream per call
+  (AsyncStream semantics); scanning runs while ≥ 1 stream is active.
 
 ## 5. Architecture (layer by layer)
 
@@ -227,10 +253,19 @@ The demux:
 ### 5.5 Command queue policy
 
 - One in-flight command; others await in an ordered queue inside the actor.
-- Timeout: default **300 ms** after last transport activity for that command
-  (not from enqueue), ×2 at 4800 baud. One retry for idempotent commands
-  (all reads; frequency/mode sets). **Never retry** non-idempotent commands
-  (`KY` keyer text, anything in the raw escape hatch unless caller opts in).
+- Deadline: an **absolute per-command deadline** measured from write
+  completion — 500 ms at ≥ 9600 baud, 1 s at 4800. Deliberately *not*
+  "time since last transport activity": a radio chattering Auto-Information
+  frames would reset an activity-based timer forever and wedge an unanswered
+  command. Deadlines come from the injected `Clock` (§9.2), so tests are
+  instant and deterministic.
+- Retry: one retry for idempotent commands (all reads; frequency/mode sets).
+  **Never retry** non-idempotent commands (`KY` keyer text, PTT transitions,
+  anything via the raw escape hatch unless the caller opts in).
+- **`?;` is not simply "invalid"**: Yaesu rigs also answer `?;` when busy.
+  Policy (matching Hamlib's behavior): for an idempotent command, one delayed
+  (50 ms) retry; if `?;` repeats, surface `.radioRejected`. Non-idempotent →
+  surface immediately.
 - Cancellation: a cancelled `Task` removes a queued command; an in-flight
   cancelled command is abandoned (reply discarded by the late-reply rule).
 - `EVT_OVERFLOW` from the bridge (protocol.md §2): fail the in-flight
@@ -282,7 +317,9 @@ level) and `ID;` (protocol level) prefers `ID;` and logs the discrepancy.
 - **Background**: `bluetooth-central` background mode documented as an
   *app-level* opt-in (Info.plist belongs to the app, not the library). State
   restoration via `CBCentralManagerOptionRestoreIdentifierKey` supported when
-  the app passes a restoration ID into `BridgeScanner`/`Session` config.
+  the app passes a restoration ID into the `CATBridgeCentral` configuration.
+  Restoration (and a few other CB behaviors) is iOS-only → those paths are
+  `#if os(iOS)` and compile-checked by the CI simulator build (§9.5).
   Scanning by **service UUID** only (the firmware advertises it precisely so
   background scans work).
 - **Bonding**: the firmware requires an encrypted link before CAT/CTRL writes
@@ -298,17 +335,29 @@ level) and `ID;` (protocol level) prefers `ID;` and logs the discrepancy.
 
 PTT is the safety-critical path (mirrors firmware §4.1/§5.5):
 
-- `transmit()` **always** arms the dialect's failsafe (`SET_FAILSAFE "TX0;"`
-  or `"RX;"`, ACK required) *before* sending PTT-on. Not configurable, not
-  bypassable — the raw escape hatch refuses PTT-like commands unless the
-  failsafe is armed (checked by the session, which knows the dialect).
-- `receive()` sends PTT-off, confirms via `IF;`/`TX;`, then disarms.
+- **Arm-once, cached**: the session arms the dialect's failsafe
+  (`SET_FAILSAFE "TX0;"` / `"RX;"`, ACK required) when the session reaches
+  `ready`, and re-arms whenever the armed state could have been lost — after
+  every BLE reconnect, after `EVT_USB(enumerated)` (firmware clears the
+  failsafe on USB detach), and after any failsafe fire. `transmit()` then
+  only checks the cached armed flag — **zero added latency per key-down**
+  (arming per keying would cost a CTRL round-trip on every over).
+- The interlock itself is not configurable and not bypassable: if the armed
+  flag is unset (e.g. re-arm in flight after a reconnect), `transmit()` arms
+  and awaits the ACK before keying; the raw escape hatch refuses PTT-on
+  commands (matched against the dialect's encoding) while unarmed.
+- `receive()` sends PTT-off and confirms via `IF;`/`TX;`. The failsafe stays
+  armed while `ready` (it is idle-cost-free); it is *not* disarmed after each
+  over, avoiding an arm/disarm churn window.
 - If the app is backgrounded/suspended or the BLE link drops while
   transmitting, the **firmware** failsafe unkeys — the library's job is only
-  to guarantee the arm-before-key ordering, and it re-arms after every
-  reconnect before permitting PTT again.
-- A `pttWatchdog` (default 3 min, configurable down, not off) inside the
-  session sends PTT-off if the app forgets — belt to the firmware's braces.
+  the arm-before-key ordering guarantee above.
+- A `pttWatchdog` (default 3 min, configurable 30 s–5 min, not off) sends
+  PTT-off if the app forgets — belt to the firmware's braces. Firing is
+  **loud, never silent**: state flips to `isTransmitting = false` with a
+  `pttWatchdogTripped` entry in `session.events`, so a legitimate long
+  transmission (WSPR is 2 min — the default must clear it) that trips the
+  watchdog is visible to the app and the user, not a mystery unkey.
 
 ## 8. Error Taxonomy
 
@@ -343,11 +392,14 @@ with fakes; real-device checks are a scripted manual pass.
 
 ### 9.1 Unit tests (Swift Testing, `CATBridgeCoreTests`)
 
-- **Wire-format golden vectors shared with the firmware**: the byte vectors
-  in `test/tools/test_catproto.py` (e.g. `SET_BAUD 38400 ==
-  01 04 00 96 00 00`, the 22-byte STATUS vector) are duplicated as Swift
-  `@Test(arguments:)` cases with a comment pinning them to the Python file;
-  drift in either breaks a build somewhere.
+- **Wire-format golden vectors shared with the firmware — one file, not a
+  comment**: a JSON vector file `esp32s3/test/vectors/ctrlproto.json`
+  (frames, STATUS payloads, expected decodes) becomes the single source of
+  truth. The Python suite loads it directly; the Swift package embeds a copy
+  as an SPM resource (SPM cannot reference files outside the package root)
+  and a CI step **byte-compares the two copies** — so the "duplicate" cannot
+  drift silently, which a pinning comment never guarantees. Swift Testing
+  consumes it via `@Test(arguments:)` over the decoded vector list.
 - **Dialect encoders**: parameterized tests over the full mode tables (Yaesu
   newcat codes incl. `8`/`A`–`F` data modes; Kenwood single digits),
   frequency zero-padding at 9 vs 11 digits, boundary frequencies.
@@ -365,15 +417,24 @@ with fakes; real-device checks are a scripted manual pass.
 `ScriptedTransport` drives the *real* `TransceiverSession` actor against
 Swift ports of the three radio personalities from
 `esp32s3/test/tools/radio_sim.py` (same command→response tables, same fault
-injections — mute, stall-mid-response, garbage burst, disconnect):
+injections — mute, stall-mid-response, garbage burst, disconnect). The port
+is acknowledged duplication: it pins the radio_sim revision it mirrors in a
+header comment, and the on-device rig (§9.4) runs against the *Python*
+personalities, so a behavioral drift between the two shows up there rather
+than never:
 
 - Full connect → identify → ready flow per radio; dialect auto-selection.
 - Baud-probe walk (38400 → 9600 → 4800) incl. all-fail surfacing.
 - Command round-trips, no-reply set commands confirmed by next poll.
 - Timeout → single retry → success; non-idempotent commands not retried.
 - Cancellation: cancelled Task's command never sent / reply discarded.
-- PTT interlock: `transmit()` provably arms failsafe first (transport
-  records ordering); PTT via raw escape hatch without failsafe → throws.
+- PTT interlock (§7.4): failsafe is armed (ACKed) before `ready`; the
+  transport journal proves SET_FAILSAFE precedes the first PTT-on; re-arm
+  happens after scripted reconnect and after `EVT_USB(enumerated)`; a
+  `transmit()` racing an in-flight re-arm awaits the ACK before keying;
+  raw-escape-hatch PTT while unarmed → throws.
+- PTT watchdog: manual-clock advance past the deadline → PTT-off sent,
+  `pttWatchdogTripped` event emitted (never a silent unkey).
 - Overflow event → in-flight command fails, poller recovers state.
 - Reconnect storm: scripted disconnects at every lifecycle phase; state
   machine always lands back in `ready` or a terminal error, never wedges.
@@ -405,10 +466,20 @@ With the real bridge + `radio_sim.py` rig (no radio), then real radios:
 
 ### 9.5 CI
 
-GitHub Actions `macos-latest`: `swift build -c release` (warnings as
-errors), `swift test` (Core + BLE fakes), `swift package diagnose-api-breaking-changes`
-against the last tag once v0.1 is cut. DocC build (`docc convert`) must
-succeed with zero missing-symbol warnings.
+GitHub Actions `macos-latest`:
+
+1. `swift build -c release` + `swift test` (Core + BLE fakes) — runs the
+   whole headless suite natively on macOS.
+2. **iOS simulator build** (`xcodebuild build -scheme CATBridgeKit
+   -destination 'generic/platform=iOS Simulator'`): macOS-only compilation
+   never touches iOS-only code (`#if os(iOS)` branches like CB state
+   restoration — `CBCentralManagerOptionRestoreIdentifierKey` does not exist
+   on macOS), so without this step those branches are unchecked until
+   someone opens Xcode. Build-only; the fakes already test the logic.
+3. Golden-vector byte-compare against `esp32s3/test/vectors/ctrlproto.json`
+   (§9.1).
+4. `swift package diagnose-api-breaking-changes` against the last tag once
+   v0.1 is cut; DocC build with zero missing-symbol warnings.
 
 ## 10. Milestones
 
