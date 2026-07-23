@@ -736,14 +736,13 @@ public actor TransceiverSession {
     private func pollOnce() async {
         guard case .ready = model.connection, usbEnumerated,
               let dialect else { return }
+        // try? flattens execute's String? — nil means threw OR no reply.
         if let reply = try? await execute(dialect.readInfo),
-           let reply,
            let value = try? dialect.parse(reply: reply, to: dialect.readInfo) {
             apply(value)
         }
         if let readPTT = dialect.readPTT,
            let reply = try? await execute(readPTT),
-           let reply,
            let value = try? dialect.parse(reply: reply, to: readPTT) {
             apply(value)
         }
@@ -751,7 +750,6 @@ public actor TransceiverSession {
            dialect.capabilities.contains(.sMeter),
            let readSMeter = dialect.readSMeter,
            let reply = try? await execute(readSMeter),
-           let reply,
            let value = try? dialect.parse(reply: reply, to: readSMeter) {
             apply(value)
         }
