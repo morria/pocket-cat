@@ -1,0 +1,15 @@
+menu "CAT Bridge BLE"
+
+    config BRIDGE_BLE_REQUIRE_BONDING
+        bool "Require LE encryption + bonding for CAT/CTRL access"
+        default y
+        help
+            Release policy (docs/implementation.md §4): this link can key a
+            100 W transmitter, so an open bridge is a safety problem. When
+            enabled, writes to CAT_RX/CTRL are rejected until the link is
+            encrypted (Just Works bonding, LE Secure Connections).
+
+            Disable ONLY for debug/bring-up builds. The LED signals the
+            insecure state with a triple-blink burst (§5.6).
+
+endmenu

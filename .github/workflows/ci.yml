@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  host-tests:
+    name: Host unit + e2e simulation tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and run C test suites (ASan/UBSan)
+        run: make -C esp32s3/test/host run
+      - name: Python tools tests
+        run: |
+          pip install pytest pytest-timeout pyserial
+          python -m pytest esp32s3/test/tools -q
+
+  firmware-build:
+    name: ESP-IDF build (esp32s3)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build firmware
+        uses: espressif/esp-idf-ci-action@v1
+        with:
+          esp_idf_version: v5.3
+          target: esp32s3
+          path: esp32s3/firmware
+      - name: Upload firmware binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: cat_bridge-esp32s3
+          path: |
+            esp32s3/firmware/build/cat_bridge.bin
+            esp32s3/firmware/build/bootloader/bootloader.bin
+            esp32s3/firmware/build/partition_table/partition-table.bin
+          if-no-files-found: error
