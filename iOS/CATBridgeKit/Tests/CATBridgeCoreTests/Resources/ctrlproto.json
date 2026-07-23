@@ -1,0 +1,167 @@
+{
+  "comment": "Golden wire-format vectors for the CTRL TLV protocol (esp32s3/docs/protocol.md). Single source of truth consumed by esp32s3/test/tools/test_catproto.py and embedded (byte-identical, CI-verified) in iOS/CATBridgeKit/Tests/CATBridgeCoreTests/Resources/ctrlproto.json.",
+  "version": 1,
+  "frames": [
+    {
+      "name": "set_baud_38400",
+      "op": 1,
+      "payload_hex": "00960000",
+      "wire_hex": "010400960000"
+    },
+    {
+      "name": "set_baud_4800",
+      "op": 1,
+      "payload_hex": "c0120000",
+      "wire_hex": "0104c0120000"
+    },
+    {
+      "name": "get_status",
+      "op": 2,
+      "payload_hex": "",
+      "wire_hex": "0200"
+    },
+    {
+      "name": "usb_reset",
+      "op": 3,
+      "payload_hex": "",
+      "wire_hex": "0300"
+    },
+    {
+      "name": "set_line_dtr",
+      "op": 4,
+      "payload_hex": "01",
+      "wire_hex": "040101"
+    },
+    {
+      "name": "set_line_rts",
+      "op": 4,
+      "payload_hex": "02",
+      "wire_hex": "040102"
+    },
+    {
+      "name": "set_line_both",
+      "op": 4,
+      "payload_hex": "03",
+      "wire_hex": "040103"
+    },
+    {
+      "name": "purge_usb_to_ble",
+      "op": 5,
+      "payload_hex": "01",
+      "wire_hex": "050101"
+    },
+    {
+      "name": "purge_ble_to_usb",
+      "op": 5,
+      "payload_hex": "02",
+      "wire_hex": "050102"
+    },
+    {
+      "name": "set_failsafe_tx0",
+      "op": 6,
+      "payload_hex": "5458303b",
+      "wire_hex": "06045458303b"
+    },
+    {
+      "name": "set_failsafe_rx",
+      "op": 6,
+      "payload_hex": "52583b",
+      "wire_hex": "060352583b"
+    },
+    {
+      "name": "set_failsafe_disarm",
+      "op": 6,
+      "payload_hex": "",
+      "wire_hex": "0600"
+    },
+    {
+      "name": "ack_set_baud",
+      "op": 128,
+      "payload_hex": "0100",
+      "wire_hex": "80020100"
+    },
+    {
+      "name": "nak_purge_bad_arg",
+      "op": 129,
+      "payload_hex": "0502",
+      "wire_hex": "81020502"
+    },
+    {
+      "name": "evt_usb_enumerated_ft891",
+      "op": 130,
+      "payload_hex": "0101",
+      "wire_hex": "82020101"
+    },
+    {
+      "name": "evt_usb_detached",
+      "op": 130,
+      "payload_hex": "0000",
+      "wire_hex": "82020000"
+    },
+    {
+      "name": "evt_overflow_u2b",
+      "op": 131,
+      "payload_hex": "00b0a00201",
+      "wire_hex": "830500b0a00201"
+    }
+  ],
+  "status": [
+    {
+      "name": "ft891_enumerated_38400",
+      "wire_hex": "01010100960000110000000300000000010240e20100",
+      "decoded": {
+        "usb_state": 1,
+        "radio_id": 1,
+        "baud": 38400,
+        "drops_usb_to_ble": 17,
+        "drops_ble_to_usb": 3,
+        "fw_major": 0,
+        "fw_minor": 1,
+        "reset_reason": 2,
+        "min_free_heap": 123456
+      }
+    },
+    {
+      "name": "waiting_no_radio",
+      "wire_hex": "01000000000000000000000000000000010000000000",
+      "decoded": {
+        "usb_state": 0,
+        "radio_id": 0,
+        "baud": 0,
+        "drops_usb_to_ble": 0,
+        "drops_ble_to_usb": 0,
+        "fw_major": 0,
+        "fw_minor": 1,
+        "reset_reason": 0,
+        "min_free_heap": 0
+      }
+    },
+    {
+      "name": "qmx_with_trailing_future_bytes",
+      "wire_hex": "010103c0120000000000000000000000010200010000aabb",
+      "decoded": {
+        "usb_state": 1,
+        "radio_id": 3,
+        "baud": 4800,
+        "drops_usb_to_ble": 0,
+        "drops_ble_to_usb": 0,
+        "fw_major": 0,
+        "fw_minor": 1,
+        "reset_reason": 2,
+        "min_free_heap": 256
+      }
+    }
+  ],
+  "invalid_status": [
+    {
+      "name": "too_short",
+      "wire_hex": "0101",
+      "reason": "short"
+    },
+    {
+      "name": "bad_version",
+      "wire_hex": "63000000000000000000000000000000000000000000",
+      "reason": "version"
+    }
+  ]
+}

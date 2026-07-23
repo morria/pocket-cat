@@ -1,11 +1,78 @@
 """pytest suite for catproto — including wire-format vectors that must match
-the C implementation (ctrl_proto.c) byte for byte."""
+the C implementation (ctrl_proto.c) byte for byte.
 
+The golden vectors live in esp32s3/test/vectors/ctrlproto.json (single source
+of truth, also embedded in the Swift package and byte-compared in CI)."""
+
+import json
+import pathlib
 import struct
 
 import pytest
 
 import catproto as cp
+
+VECTORS = json.loads(
+    (pathlib.Path(__file__).parent.parent / "vectors" / "ctrlproto.json")
+    .read_text())
+
+# name → encoder producing the frame bytes, mirroring the JSON "frames" list.
+FRAME_ENCODERS = {
+    "set_baud_38400": lambda: cp.set_baud(38400),
+    "set_baud_4800": lambda: cp.set_baud(4800),
+    "get_status": cp.get_status,
+    "usb_reset": cp.usb_reset,
+    "set_line_dtr": lambda: cp.set_line(dtr=True),
+    "set_line_rts": lambda: cp.set_line(rts=True),
+    "set_line_both": lambda: cp.set_line(dtr=True, rts=True),
+    "purge_usb_to_ble": lambda: cp.purge(usb_to_ble=True),
+    "purge_ble_to_usb": lambda: cp.purge(ble_to_usb=True),
+    "set_failsafe_tx0": lambda: cp.set_failsafe(b"TX0;"),
+    "set_failsafe_rx": lambda: cp.set_failsafe(b"RX;"),
+    "set_failsafe_disarm": lambda: cp.set_failsafe(b""),
+}
+
+
+@pytest.mark.parametrize("vec", VECTORS["frames"], ids=lambda v: v["name"])
+def test_frame_vectors(vec):
+    wire = bytes.fromhex(vec["wire_hex"])
+    # Structural invariants for every vector.
+    assert wire[0] == vec["op"]
+    assert wire[2:] == bytes.fromhex(vec["payload_hex"])
+    assert wire[1] == len(wire) - 2
+    # Round-trips through the decoder.
+    frames, rest = cp.decode_stream(wire)
+    assert rest == b"" and len(frames) == 1
+    assert frames[0].op == vec["op"]
+    # Encoder vectors: our encoder must produce the exact bytes.
+    if vec["name"] in FRAME_ENCODERS:
+        assert FRAME_ENCODERS[vec["name"]]() == wire
+
+
+@pytest.mark.parametrize("vec", VECTORS["status"], ids=lambda v: v["name"])
+def test_status_vectors(vec):
+    st = cp.Status.decode(bytes.fromhex(vec["wire_hex"]))
+    d = vec["decoded"]
+    assert st.usb_state == d["usb_state"]
+    assert st.radio_id == d["radio_id"]
+    assert st.baud == d["baud"]
+    assert st.drops_usb_to_ble == d["drops_usb_to_ble"]
+    assert st.drops_ble_to_usb == d["drops_ble_to_usb"]
+    assert (st.fw_major, st.fw_minor) == (d["fw_major"], d["fw_minor"])
+    assert st.reset_reason == d["reset_reason"]
+    assert st.min_free_heap == d["min_free_heap"]
+
+
+@pytest.mark.parametrize("vec", VECTORS["invalid_status"],
+                         ids=lambda v: v["name"])
+def test_invalid_status_vectors(vec):
+    with pytest.raises(ValueError):
+        cp.Status.decode(bytes.fromhex(vec["wire_hex"]))
+
+
+def test_all_encoders_have_vectors():
+    names = {v["name"] for v in VECTORS["frames"]}
+    assert set(FRAME_ENCODERS) <= names
 
 
 def test_encode_set_baud_vector():

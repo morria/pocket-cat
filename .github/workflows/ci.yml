@@ -17,6 +17,30 @@ jobs:
         run: |
           pip install pytest pytest-timeout pyserial
           python -m pytest esp32s3/test/tools -q
+      - name: Golden vectors byte-identical across firmware and iOS package
+        run: |
+          cmp esp32s3/test/vectors/ctrlproto.json \
+              iOS/CATBridgeKit/Tests/CATBridgeCoreTests/Resources/ctrlproto.json
+
+  ios-library:
+    name: CATBridgeKit (swift test + iOS build)
+    runs-on: macos-15
+    defaults:
+      run:
+        working-directory: iOS/CATBridgeKit
+    steps:
+      - uses: actions/checkout@v4
+      - name: Swift version
+        run: swift --version
+      - name: Build and test (macOS host — Core + BLE fakes)
+        run: swift test
+      - name: iOS simulator build (compile-checks os(iOS) branches)
+        run: |
+          xcodebuild build \
+            -scheme CATBridgeKit \
+            -destination 'generic/platform=iOS Simulator' \
+            -skipMacroValidation \
+            CODE_SIGNING_ALLOWED=NO
 
   firmware-build:
     name: ESP-IDF build (esp32s3)
