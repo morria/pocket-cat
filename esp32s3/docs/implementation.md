@@ -92,7 +92,8 @@ esp32s3/
 ├── docs/
 │   ├── implementation.md        # this file
 │   ├── protocol.md              # BLE GATT + control protocol spec (source of truth)
-│   └── hardware.md              # wiring, VBUS mod, photos
+│   ├── hardware.md              # wiring, VBUS mod, photos
+│   └── references/              # curated CAT/USB/hardware reference docs (see below)
 ├── firmware/
 │   ├── CMakeLists.txt
 │   ├── sdkconfig.defaults
@@ -115,6 +116,21 @@ esp32s3/
 Pure-logic components (`ctrl_proto`, ring buffers in `cat_bridge`) must compile
 on the Linux host with no FreeRTOS/IDF headers so they can be unit-tested off
 target.
+
+### Reference documentation
+
+`docs/references/` collects the distilled, offline facts implementers need so
+the CAT formats, USB IDs, and pinouts don't have to be re-derived mid-task
+(mode codes are cross-checked against Hamlib; see each doc's provenance note):
+
+- [`references/README.md`](references/README.md) — index + canonical primary sources
+- [`references/yaesu-cat-ft891.md`](references/yaesu-cat-ft891.md) — FT-891 CAT command set
+- [`references/yaesu-cat-ftx1.md`](references/yaesu-cat-ftx1.md) — FTX-1 CAT deltas + USB
+- [`references/qmx-cat.md`](references/qmx-cat.md) — QMX / Kenwood TS-480 subset
+- [`references/hardware-xiao-esp32s3.md`](references/hardware-xiao-esp32s3.md) — board, USB-OTG, power, console
+- [`references/usb-cp210x-cdc.md`](references/usb-cp210x-cdc.md) — CP210x / CDC-ACM descriptors + detect table
+- [`references/firmware-esp-idf-usb-host-vcp.md`](references/firmware-esp-idf-usb-host-vcp.md) — ESP-IDF USB Host + VCP
+- [`references/firmware-nimble-ble.md`](references/firmware-nimble-ble.md) — NimBLE GATT server
 
 ---
 
