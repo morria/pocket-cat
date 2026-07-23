@@ -38,19 +38,28 @@ explicitly out of scope and the docs must say so to head off feature requests.
 
 - The ESP32-S3's native USB-OTG (GPIO19 D-, GPIO20 D+) is routed to the XIAO's
   USB-C connector. In **host mode** this same connector talks to the radio.
-- **VBUS sourcing caveat:** the XIAO's 5V rail feeds the USB-C VBUS through a
-  Schottky diode in the *charge* direction only. To power a bus-powered device
-  (the FT-891's CP2105 is bus-powered even though the radio has its own PSU):
-  - Power the XIAO from its `5V`/`GND` pads (or BAT pads), **and**
-  - Either bridge the VBUS diode (solder jumper) or use a USB-C OTG "Y" cable /
-    powered adapter that injects 5 V on VBUS externally.
-  - **Recommended default: the powered OTG cable**, because bridging the diode
-    creates a second trap: with the diode bridged, plugging the XIAO into a PC
-    while it is also bench-powered connects two 5 V supplies against each other.
-    If the board *is* modified, the rule is "never both at once" and it must be
-    printed in `docs/hardware.md` in bold.
-  - Document the chosen approach with photos in `docs/hardware.md` during
-    bring-up; this is the #1 "it doesn't enumerate" trap.
+- **VBUS sourcing caveat:** in host mode the XIAO must *source* 5 V out of its
+  USB-C connector to power a bus-powered device (the FT-891's CP2105 is
+  bus-powered even though the radio has its own PSU). **Measure before you
+  modify** — on this board the `5V` pad and USB-C VBUS are the same net, so the
+  simplest path usually needs no board mod at all:
+  - **Confirm `5V`↔VBUS continuity with a multimeter first.** If connected
+    (~0 Ω), just **inject 5 V on the `5V` pad** (power the XIAO from `5V`/`GND`
+    or BAT) and VBUS follows — done, no solder.
+  - If instead the meter shows a series part (diode drop / open), identify its
+    exact designator from the **official Seeed schematic**, confirm, then bridge
+    it. Do **not** assume an onboard diode blocks 5 V→VBUS — that claim is
+    unverified for this board and often the reverse of reality (the "diode" in
+    Seeed forum threads is an *external* part to stop back-feeding).
+  - Alternative that needs no mod: a powered USB-C OTG cable / adapter that
+    injects external 5 V on VBUS.
+  - ⚠️ If you *do* bridge an in-path part, the rule is **never power from a PC
+    and a bench/external 5 V supply at once** (two 5 V sources tied together) —
+    print it in `docs/hardware.md` in bold.
+  - The bus-power concern is really the Yaesu (CP2105/CP210x) radios; the QMX is
+    self-powered over native USB. Document the chosen approach with photos and
+    the continuity measurement in `docs/hardware.md` during bring-up; this is
+    the #1 "it doesn't enumerate" trap. See `docs/references/hardware-xiao-esp32s3.md`.
 - **Console logging:** with the native USB in host mode, USB-CDC console is
   unavailable. Route logs to **UART0 (TX=GPIO43, RX=GPIO44)** and set
   `ESP_CONSOLE_UART_DEFAULT` in sdkconfig. A $3 USB-UART dongle becomes the dev
@@ -462,7 +471,8 @@ Documented as a runnable checklist in `docs/testing-acceptance.md`:
    interface (#0) — resolve at first real-radio session (7.5 item 1).
 3. Whether any target radio requires DTR/RTS asserted to accept CAT (drives
    default state of `SET_LINE`).
-4. VBUS strategy for the "product" build: powered OTG cable (recommended) vs.
-   board mod — decide before M6 so acceptance runs on the shipping topology.
+4. VBUS strategy for the "product" build: inject 5 V on the `5V` pad (after
+   confirming `5V`↔VBUS continuity — likely no mod needed) vs. powered OTG cable
+   vs. board mod — decide before M6 so acceptance runs on the shipping topology.
 5. BLE bonding is settled as the release default (§4); open question is only
    whether to require a passkey instead of Just Works — decide before M5.

@@ -33,17 +33,45 @@ port, so a USB-C→USB (OTG) adapter connects the radio.
 
 ## Power / VBUS — the #1 enumeration trap
 
-- The XIAO's 5 V rail reaches the USB-C VBUS pin only through a **Schottky diode
-  oriented for charging** (VBUS→5V), so the board **cannot source 5 V out of the
-  USB-C connector by default**. A bus-powered device (e.g. the FT-891's CP2105)
-  therefore gets no VBUS and never enumerates.
-- Two fixes (pick one; document in `hardware.md`):
-  1. **Powered USB-C OTG cable / adapter** that injects external 5 V on VBUS —
-     *recommended*, no board mod, no back-power hazard.
-  2. **Bridge the VBUS diode** (solder jumper) so the XIAO's 5 V feeds VBUS.
-     ⚠️ **Then never power the XIAO from a PC and the bench supply at the same
-     time** — bridging ties two 5 V sources together.
-- Power the XIAO itself from the `5V`/`GND` pads (or `BAT` pads) while it hosts.
+A bus-powered USB device (e.g. the FT-891's CP2105) draws its 5 V *from the
+host* over VBUS. In host mode the XIAO must therefore **source** 5 V out of the
+USB-C connector — the opposite of its normal role. If VBUS stays unpowered, the
+radio never enumerates and there is no error, just silence.
+
+### ⚠️ Measure before you modify — you probably don't need a solder mod
+
+On the XIAO ESP32S3 the **`5V` pad and the USB-C VBUS pin are the same net**
+(VBUS is pin 14 / the `5V` pad). The common, widely-used approach is simply to
+**feed 5 V into the `5V` pad**; it reaches USB-C VBUS and powers the peripheral
+with **no board modification**. Verify on your actual board first:
+
+1. Multimeter, continuity mode: probe the `5V` pad against the USB-C shell/VBUS
+   pin. ~0 Ω → the rail is already connected; inject 5 V on `5V` and you're done.
+2. If instead you read a diode drop (~0.3 V) or an open, there is a series part
+   in the path — identify its **exact designator from the official schematic**
+   (Seeed wiki → Resources), confirm with the meter, then bridge that part.
+
+> Earlier revisions of this note asserted an onboard Schottky diode always
+> blocks the 5 V→VBUS direction. That is **not confirmed** for this board and is
+> commonly the *opposite* of reality (the "diode" in Seeed forum threads is an
+> **external** part you add to stop back-feeding when combining USB-C with an
+> external 5 V source — an expansion-board concern). Trust the measurement + the
+> schematic over any blog photo of a possibly-different revision.
+
+### Options, in order of preference
+
+1. **Inject 5 V on the `5V` pad** (after confirming `5V`↔VBUS continuity) —
+   simplest, no mod. Power the XIAO from `5V`/`GND` (or `BAT`) and VBUS follows.
+2. **Powered USB-C OTG cable / adapter** that injects external 5 V on VBUS —
+   no board mod, no back-power hazard; good when you can't reach the `5V` pad.
+3. **Bridge the in-path component** (only if step 1's measurement shows one, and
+   only after identifying it on the schematic) so the `5V` rail feeds VBUS.
+   ⚠️ **Then never power the XIAO from a PC and a bench/external 5 V supply at
+   the same time** — that ties two 5 V sources together. Pick one source.
+
+Note: this whole concern is really about the **bus-powered Yaesu** radios
+(CP2105/CP210x). The **QMX is self-powered** over native USB, so it is unlikely
+to depend on host VBUS at all — confirm per-radio at bring-up.
 
 ## Console & flashing (native USB is busy)
 
