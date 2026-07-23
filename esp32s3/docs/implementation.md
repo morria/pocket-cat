@@ -9,7 +9,7 @@ USB CAT interface. Supported radios:
 | Radio | CAT protocol | USB interface (expected) |
 |---|---|---|
 | Yaesu FT-891 | Yaesu ASCII CAT, `;`-terminated (FT-991A family syntax) | Silicon Labs **CP2105** dual UART (VID `0x10C4`, PID `0xEA70`). The **Enhanced** interface carries CAT; the Standard interface carries PTT/RTTY keying lines. |
-| Yaesu FTX-1 | Yaesu ASCII CAT, `;`-terminated (FT-710/991A-era command set) | USB-C; to be confirmed at bring-up. Assume SiLabs CP210x-family or CDC-ACM; the driver matrix below covers both. |
+| Yaesu FTX-1 | Yaesu ASCII CAT, `;`-terminated (FT-710/991A-era command set) | USB-C; to be confirmed at bring-up. Likely a **composite device** (USB audio codec + serial bridge, as on the FT-710). Assume SiLabs CP210x-family or CDC-ACM for the serial function; detection must therefore match per-interface, not per-device (§5.2). |
 | QRP Labs QMX | Kenwood TS-480-style ASCII CAT, `;`-terminated | Native STM32 **USB CDC-ACM** (baud rate is ignored by the radio). |
 
 **Design principle: the ESP32-S3 is a dumb pipe.** All CAT protocol knowledge —
@@ -24,7 +24,11 @@ lives on the remote (iOS) side. The firmware only:
 Everything conveniently testable without a radio must be testable without a radio.
 
 Non-goals (v1): CAT command interpretation on the ESP32, multi-radio
-simultaneous support, Wi-Fi, OTA (planned as a later phase), audio.
+simultaneous support, Wi-Fi, OTA (planned as a later phase), audio, and
+**real-time CW keying**: BLE connection-interval jitter (tens of ms) makes
+timing-accurate paddle/keyer emulation infeasible over this link. PTT and
+CAT-initiated CW (e.g. Yaesu `KY`/memory keyer) work; element-timed keying is
+explicitly out of scope and the docs must say so to head off feature requests.
 
 ---
 
@@ -40,22 +44,36 @@ simultaneous support, Wi-Fi, OTA (planned as a later phase), audio.
   - Power the XIAO from its `5V`/`GND` pads (or BAT pads), **and**
   - Either bridge the VBUS diode (solder jumper) or use a USB-C OTG "Y" cable /
     powered adapter that injects 5 V on VBUS externally.
+  - **Recommended default: the powered OTG cable**, because bridging the diode
+    creates a second trap: with the diode bridged, plugging the XIAO into a PC
+    while it is also bench-powered connects two 5 V supplies against each other.
+    If the board *is* modified, the rule is "never both at once" and it must be
+    printed in `docs/hardware.md` in bold.
   - Document the chosen approach with photos in `docs/hardware.md` during
     bring-up; this is the #1 "it doesn't enumerate" trap.
 - **Console logging:** with the native USB in host mode, USB-CDC console is
   unavailable. Route logs to **UART0 (TX=GPIO43, RX=GPIO44)** and set
   `ESP_CONSOLE_UART_DEFAULT` in sdkconfig. A $3 USB-UART dongle becomes the dev
   console.
+- **Flashing workflow:** the native USB port is occupied by host mode, so
+  day-to-day flashing goes over the same UART0 dongle (hold BOOT at reset to
+  enter the ROM UART downloader), which also keeps the console attached.
+  Alternative: unplug the radio and use the native USB bootloader (BOOT+reset);
+  fine for one-offs, annoying for iterative work. The bench runner (§7.7) must
+  use the UART path so it never needs to touch the USB-C cable.
 - LED: use the XIAO's user LED (GPIO21) for link-state signalling (§5.6).
 
 ### 2.2 Bench inventory needed for testing
 
 - 1× XIAO ESP32S3 + USB-UART dongle for console.
 - 1× USB-C OTG adapter with external power injection (or modified board).
-- 1× CP2102/CP2105 breakout ("fake radio" — enumerates identically to the
-  FT-891's bridge chip) wired to a PC running the radio simulator (§7.4).
-- Optionally: a second dev board flashed as a CDC-ACM echo device to emulate
-  the QMX enumeration path.
+- 1× **CP2105** board (e.g. SiLabs CP2105-EK eval kit) as the "fake FT-891":
+  only a real CP2105 exercises the dual-interface path and the PID `0xEA70`
+  match. A common CP2102 breakout does **not** — it enumerates as PID `0xEA60`,
+  single interface, and lands in the generic CP210x profile. Keep a CP2102
+  around anyway: it is the test vector for that generic (FTX-1-candidate) path.
+- A second dev board flashed as a CDC-ACM echo/serial device to emulate the
+  QMX enumeration path.
 - Real radios for final hardware-in-the-loop passes.
 
 ---
@@ -113,7 +131,7 @@ base (generate a project-specific base UUID; record it in `protocol.md`).
 | `CAT_RX` | Write / Write-No-Response | central → radio | Raw CAT bytes to forward to the radio. No framing; any byte sequence legal. |
 | `CAT_TX` | Notify | radio → central | Raw CAT bytes from the radio. Chunked to `ATT_MTU − 3`. |
 | `CTRL` | Write + Notify | both | TLV control messages (§4.1). |
-| `STATUS` | Read + Notify | device → central | Packed status struct: USB link state, detected radio, baud, buffer stats, firmware version. Notified on change. |
+| `STATUS` | Read + Notify | device → central | Packed status struct: USB link state, detected radio, baud, buffer stats, firmware version. Notified on change. First byte is a **format-version**; all multi-byte fields **little-endian**; layout frozen in `protocol.md`. |
 
 Rules:
 
@@ -123,9 +141,14 @@ Rules:
   optionally flush at once when the last byte received from the radio is `;`
   (all three radios terminate responses with `;`), keeping latency low without
   the ESP32 needing to understand the protocol beyond that single delimiter.
-- Single central only; reject/ignore a second connection attempt (v1).
-- Pairing: Just Works LE encryption optional and configurable; default open for
-  v1 bring-up, with a build flag to require bonding before ship.
+- Single central only. Concretely: **stop advertising on connect, resume on
+  disconnect** — that *is* the rejection mechanism; there is no reliable way to
+  "refuse" a central that was allowed to connect, so don't design for one.
+- Security: this link can key a 100 W transmitter, so an open bridge is a
+  safety problem, not a convenience question. **Release builds require LE
+  encryption + bonding (Just Works) by default**; whether to step up to a
+  passkey is an open question (§9). Open/unencrypted mode exists only behind a
+  debug build flag and the LED signals it (§5.6). Bonded-peer allowlist of 1.
 
 ### 4.1 Control protocol (`CTRL` characteristic)
 
@@ -139,6 +162,7 @@ functions (`encode`/`decode` over byte spans) → trivially unit-testable.
 | `0x03 USB_RESET` | C→P | — | Force USB re-enumeration (recovery hammer). |
 | `0x04 SET_LINE` | C→P | bitmap | Assert/deassert DTR/RTS (some rigs key PTT via these; QMX ignores). |
 | `0x05 PURGE` | C→P | u8 mask | Flush TX and/or RX ring buffers. |
+| `0x06 SET_FAILSAFE` | C→P | 0–32 raw bytes | Byte string the bridge writes to the radio **once, on BLE disconnect or supervision timeout** (e.g. the app sets `TX0;` after keying PTT, clears it after unkey). Empty payload disables. Protects against a dead app leaving the rig keyed while keeping protocol knowledge on the remote — the firmware never interprets the bytes. Not persisted; cleared on USB detach. |
 | `0x80 ACK` / `0x81 NAK` | P→C | opcode + err code | Result of last command. |
 | `0x82 EVT_USB` | P→C | state enum + radio id enum | USB attach/detach/enumerated events. |
 | `0x83 EVT_OVERFLOW` | P→C | u8 which + u32 dropped | Buffer overflow report (§5.4). |
@@ -172,19 +196,37 @@ Every command gets exactly one ACK/NAK. The remote never needs to poll.
 
 Static allocation throughout; no heap use on the datapath after init.
 
+A notify attempt can fail when the controller is out of buffers
+(`BLE_HS_ENOMEM`). Treat that as **backpressure, never as a drop**: leave the
+bytes in `rb_usb_to_ble` and retry on the next tick/conn event. Only ring-full
+(§5.4) may ever discard data, because only that path reports the loss.
+
 ### 5.2 Radio detection
 
-Match table evaluated at enumeration, in order:
+Match table evaluated at enumeration. Matching is **per-interface**, not
+per-device: modern rigs (FT-710, expected FTX-1) enumerate as composite
+devices (USB audio + serial bridge), so `usb_link` walks the configuration
+descriptor, skips non-serial interfaces (e.g. UAC audio), and matches the
+first serial-capable interface against the table:
 
-1. `VID 0x10C4 / PID 0xEA70` (CP2105) → **FT-891 profile**: open the *Enhanced*
-   interface (interface #1 on CP2105) for CAT; default 38400-8-N-1 (recommend
-   users set menu `05-06 CAT RATE = 38400`; remote can `SET_BAUD` to 4800/9600).
+1. `VID 0x10C4 / PID 0xEA70` (CP2105) → **FT-891 profile**: open the
+   *Enhanced* (ECI) interface — **interface #0** on the CP2105 (the Standard
+   SCI is #1). Verify the CAT-is-on-Enhanced assumption against a real FT-891
+   at bring-up before freezing this; getting it wrong silently connects to the
+   PTT/RTTY port. Default **4800-8-N-1** — see baud note below.
 2. `VID 0x10C4`, other CP210x PIDs → **generic Yaesu profile** (FTX-1 expected
-   here until confirmed): single interface, default 38400.
-3. USB class `CDC-ACM` → **QMX/generic-CDC profile**: baud is cosmetic; still
-   apply `SET_BAUD` so line coding requests succeed.
+   here until confirmed): default 4800.
+3. Interface class `CDC-ACM` → **QMX/generic-CDC profile**: baud is cosmetic;
+   still apply `SET_BAUD` so line coding requests succeed.
 4. `VID 0x0403` (FTDI) → fallback generic profile.
 5. Anything else → status `RADIO_UNSUPPORTED`; stay attached, report over CTRL.
+
+**Baud default rationale:** the FT-891 ships with `05-06 CAT RATE = 4800`, so
+the bridge must default to 4800 or a factory-fresh radio silently fails —
+mismatched baud produces no error, just garbage/silence. The *app* owns baud
+negotiation: probe with `ID;` at 38400 → 9600 → 4800 via `SET_BAUD` (cheap,
+< 1 s worst case), then recommend the user raise the menu setting. The
+firmware never auto-probes; that would be protocol knowledge.
 
 The detected profile enum is surfaced in `STATUS`; the *remote* decides which
 CAT dialect to speak. The profile only selects driver, interface index, and
@@ -213,7 +255,9 @@ be told; it recovers by re-polling (CAT is idempotent request/response).
   fully automatic; no reboot.
 - USB stall/babble/driver error: one automatic port reset + re-enumerate; if it
   fails 3× in 10 s, back off to 5 s retry and report `USB_ERROR` state.
-- BLE disconnect: keep USB open, purge `rb_ble_to_usb` only, keep filling
+- BLE disconnect: **first** transmit the `SET_FAILSAFE` string to the radio,
+  if one is armed (this is the stuck-PTT protection and must not race with the
+  purge). Then keep USB open, purge `rb_ble_to_usb` only, keep filling
   `rb_usb_to_ble` for ≤ 1 s then purge (stale data is useless).
 - Watchdog on bridge + usb tasks; brownout handler logs to RTC memory and the
   reset reason is included in `STATUS` after boot.
@@ -226,6 +270,7 @@ be told; it recovers by re-polling (CAT is idempotent request/response).
 | double-blink | USB radio enumerated, no BLE central |
 | solid | BLE connected + radio enumerated (bridge live) |
 | fast blink (5 Hz) | fault (USB error state) |
+| triple-blink burst every 3 s | **debug build with BLE security disabled** (visible reminder; never ships) |
 
 ### 5.7 Configuration & persistence
 
@@ -246,7 +291,18 @@ The firmware treats these as requirements, the app implements them:
 - App must handle `EVT_OVERFLOW` by discarding any partial response buffer and
   re-issuing the last poll.
 - Write-No-Response for CAT writes; the ACK'd `CTRL` path exists for anything
-  that must be reliable.
+  that must be reliable. On iOS, respect
+  `canSendWriteWithoutResponse`/`peripheralIsReady` — CoreBluetooth silently
+  queues-then-drops WNR floods.
+- Before any PTT-on command, arm `SET_FAILSAFE` with the matching PTT-off
+  string; disarm after unkey. The firmware's disconnect behavior depends on the
+  app doing this.
+- The firmware advertises the primary service UUID **in the advertising
+  payload** (not only in the GATT table) so iOS background scanning /
+  state-restoration can rediscover the bridge; the app scans by that UUID.
+- bleak-on-Linux behavior is not CoreBluetooth behavior (MTU offers, WNR
+  throttling, backgrounding). The harness in §7.3 is necessary but not
+  sufficient — §7.5 includes a pass driven from a physical iOS device.
 
 `docs/protocol.md` is the normative spec both sides code against; it gets
 updated in the same PR as any firmware protocol change.
@@ -295,14 +351,22 @@ implementation. Test cases:
 - Chunking: responses of length 1, MTU−3, MTU−2, MTU−1, MTU, 3×MTU+1.
 - Disconnect storms: 50 connect/disconnect cycles, no leaks (heap watermark via
   `STATUS`), advertising always resumes ≤ 2 s.
-- Second-central rejection.
+- Second-central behavior: advertising stops while connected, resumes on
+  disconnect (scan trace proves it).
 - Write flood past ring capacity → `EVT_OVERFLOW` received, counts match.
+- Failsafe: arm `SET_FAILSAFE("TX0;")`, hard-drop the BLE link (kill the client
+  process, don't disconnect cleanly), assert the loopback/simulator receives
+  exactly `TX0;` within the supervision timeout + 100 ms; repeat with a clean
+  disconnect and with failsafe disarmed (nothing must be sent).
+- Bonding path: pair, bond, reconnect encrypted, reject unbonded second
+  device (release-build config).
 
 ### 7.4 Hardware-in-the-loop with a **radio simulator** (no radio)
 
 `test/tools/radio_sim.py` runs on the test host attached to the ESP32's USB
-host port through a CP2102/CP2105 breakout (FT-891 path) or a CDC dev board
-(QMX path). It emulates each radio's personality:
+host port through the CP2105 eval board (FT-891 dual-interface path), a CP2102
+breakout (generic-CP210x path), or a CDC dev board (QMX path) — three distinct
+enumeration fixtures, per §2.2. It emulates each radio's personality:
 
 - FT-891/FTX-1 mode: `;`-terminated Yaesu grammar — answers `FA;` `MD0;` `IF;`
   `TX;`/`RX;` etc. with realistic timing (per-char delay at the configured
@@ -322,14 +386,24 @@ ends to prove byte-perfect transparency.
 
 Documented as a runnable checklist in `docs/testing-acceptance.md`:
 
-1. Enumerate; `STATUS` reports correct radio id and CP2105 Enhanced port (FT-891).
+1. Enumerate; `STATUS` reports correct radio id and CP2105 Enhanced port
+   (FT-891). **First-ever FT-891 session: empirically confirm CAT answers on
+   the Enhanced (ECI, interface #0) port and update §5.2 if it doesn't.**
 2. From reference client: read frequency (`FA;`), set frequency, change mode,
    PTT on/off via CAT (`TX1;`/`TX0;` Yaesu, `TQ1;`/`TQ0;` QMX ‑ confirm),
    verify on the radio's display/RF output into a dummy load.
-3. All three CAT RATE settings on FT-891 via `SET_BAUD`.
-4. Cable pull mid-poll → auto-recovery, app resumes.
-5. RF immunity: key 100 W (FT-891) into dummy load with bridge inline; no
+3. Failsafe against the real radio: arm `SET_FAILSAFE("TX0;")`, key PTT via
+   CAT, power off the BLE client mid-transmit → radio unkeys within the
+   supervision timeout.
+4. All three CAT RATE settings on FT-891 via `SET_BAUD`, including the
+   out-of-box case: factory-default radio (4800) works with zero configuration.
+5. Cable pull mid-poll → auto-recovery, app resumes.
+6. RF immunity: key 100 W (FT-891) into dummy load with bridge inline; no
    resets, no corrupt bytes (journal check). Repeat on 40 m/20 m/10 m.
+7. Repeat a representative subset from a **physical iOS device** (TestFlight
+   build of the app or reference screens): connect, bond, background/foreground
+   the app, poll loop survives a locked phone — bleak on Linux/macOS does not
+   stand in for CoreBluetooth (§6).
 
 ### 7.6 Soak & robustness
 
@@ -356,18 +430,23 @@ Documented as a runnable checklist in `docs/testing-acceptance.md`:
 |---|---|---|
 | M0 | Repo scaffold, CI build, console on UART0, LED task | Green CI; blink on bench |
 | M1 | `ctrl_proto` + ring buffers + host unit tests | 7.1 suite green |
-| M2 | NimBLE service, MTU/chunking, CTRL/STATUS | 7.2 + BLE echo (firmware-internal loopback) green |
-| M3 | USB host + VCP drivers + radio detect | Enumerates CP2102 breakout and CDC board; profiles correct |
-| M4 | Full bridge datapath + overflow/recovery | 7.3 + 7.4 suites green |
-| M5 | Real-radio acceptance (FT-891, QMX) | 7.5 checklist signed off |
-| M6 | FTX-1 bring-up (confirm USB identity, adjust table) | 7.5 on FTX-1 |
-| M7 | Hardening: soak, RF immunity, security flag, docs | 7.6 green; protocol.md v1.0 tagged |
+| M2 | NimBLE service, MTU/chunking, CTRL/STATUS; **`protocol.md` first normative draft** | 7.2 + BLE echo (firmware-internal loopback) green; protocol.md reviewed — it must exist *before* the iOS app codes against the interface, not at M7 |
+| M3 | USB host + VCP drivers + per-interface radio detect | Enumerates CP2105 eval board (dual-interface, FT-891 profile), CP2102 (generic), CDC board (QMX); profiles + interface selection correct |
+| M4 | Full bridge datapath + overflow/recovery + failsafe | 7.3 + 7.4 suites green |
+| M5 | BLE security (bonding, allowlist, debug-open flag + LED) | 7.3 bonding cases green |
+| M6 | Real-radio acceptance (FT-891, QMX) | 7.5 checklist signed off, incl. iOS-device pass |
+| M7 | FTX-1 bring-up (confirm USB identity, adjust table) | 7.5 on FTX-1 |
+| M8 | Hardening: soak, RF immunity, docs | 7.6 green; protocol.md v1.0 tagged |
 
 ## 9. Open Questions (resolve during bring-up)
 
-1. FTX-1 USB enumeration identity (VID/PID/class, single vs dual interface) —
-   blocks only M6; the driver matrix already covers the likely outcomes.
-2. Whether any target radio requires DTR/RTS asserted to accept CAT (drives
+1. FTX-1 USB enumeration identity (VID/PID/class, composite layout) — blocks
+   only M7; the per-interface driver matrix already covers the likely outcomes.
+2. Empirical confirmation that FT-891 CAT is on the CP2105 Enhanced/ECI
+   interface (#0) — resolve at first real-radio session (7.5 item 1).
+3. Whether any target radio requires DTR/RTS asserted to accept CAT (drives
    default state of `SET_LINE`).
-3. VBUS strategy for the "product" build: board mod vs. powered OTG cable.
-4. Ship default for BLE security (open vs. bonded) — decide before M7.
+4. VBUS strategy for the "product" build: powered OTG cable (recommended) vs.
+   board mod — decide before M6 so acceptance runs on the shipping topology.
+5. BLE bonding is settled as the release default (§4); open question is only
+   whether to require a passkey instead of Just Works — decide before M5.
