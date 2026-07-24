@@ -50,6 +50,14 @@ public actor TransceiverSession {
 
     /// Tear the session down. It does not auto-reconnect after this.
     public func disconnect() async {
+        // Politeness: restore AI0; so the radio isn't left pushing frames
+        // at other CAT software. Best-effort and deadline-bounded.
+        if policy.enableAutoInformation,
+           case .ready = model.connection,
+           let dialect,
+           let disable = dialect.disableAutoInformation {
+            _ = try? await execute(disable)
+        }
         userDisconnected = true
         pollerTask?.cancel()
         reconnectTask?.cancel()
@@ -277,9 +285,21 @@ public actor TransceiverSession {
         }
 
         try await ensureFailsafeArmed()
+        await enableAutoInformationIfRequested()
         startPoller()
         setPhase(.ready)
         await pollOnce() // immediate first state fill
+    }
+
+    /// Opt-in Auto-Information (§5.6): best-effort — if the radio rejects
+    /// it, the poller still covers every update, just at poll latency.
+    /// Runs on every (re)initialization, so reconnects re-enable pushes.
+    private func enableAutoInformationIfRequested() async {
+        guard policy.enableAutoInformation,
+              let dialect,
+              dialect.capabilities.contains(.autoInformation),
+              let enable = dialect.enableAutoInformation else { return }
+        _ = try? await execute(enable, requireReady: false)
     }
 
     /// Confirm the radio answers `ID;` with this dialect at the current baud.

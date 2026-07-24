@@ -366,3 +366,86 @@ struct Rig {
         #expect(snap.connection == .ready)
     }
 }
+
+@Suite struct AutoInformationTests {
+    static var aiPolicy: PollingPolicy {
+        var policy = PollingPolicy.default
+        policy.enableAutoInformation = true
+        return policy
+    }
+
+    @Test func optInEnablesAIAndPushesAreInstant() async throws {
+        let radio = Ft891Personality()
+        let rig = Rig(radio: radio, radioID: .ft891, policy: Self.aiPolicy)
+        try await rig.start()
+
+        #expect(await rig.transport.isAIEnabled())
+        let journal = await rig.transport.journal
+        #expect(journal.contains(.cat("AI1;")))
+
+        // Operator turns the dial. NO clock advance: the poller cannot run,
+        // so an updated frequency proves the PUSH path, not polling.
+        await rig.transport.turnDial(to: "021074000")
+        for _ in 0..<50 { await Task.yield() }
+        let snap = await rig.snapshot()
+        #expect(snap.frequency == Frequency(hz: 21_074_000))
+    }
+
+    @Test func defaultPolicyNeverSendsAI() async throws {
+        let rig = Rig(radio: Ft891Personality(), radioID: .ft891)
+        try await rig.start()
+        let journal = await rig.transport.journal
+        #expect(!journal.contains(.cat("AI1;")))
+        #expect(!(await rig.transport.isAIEnabled()))
+
+        // Dial turns are invisible until the next poll (backstop behavior).
+        await rig.transport.turnDial(to: "021074000")
+        for _ in 0..<50 { await Task.yield() }
+        var snap = await rig.snapshot()
+        #expect(snap.frequency == Frequency(hz: 14_074_000))
+        await rig.clock.pump(.seconds(2)) // now the poller catches it
+        snap = await rig.snapshot()
+        #expect(snap.frequency == Frequency(hz: 21_074_000))
+    }
+
+    @Test func optInIsIgnoredForRadiosWithoutAI() async throws {
+        let rig = Rig(radio: QmxPersonality(), radioID: .qmxCDC,
+                      policy: Self.aiPolicy)
+        try await rig.start()
+        let snap = await rig.snapshot()
+        #expect(snap.connection == .ready) // flag is harmless on QMX
+        let journal = await rig.transport.journal
+        #expect(!journal.contains(.cat("AI1;")))
+    }
+
+    @Test func reconnectReenablesAI() async throws {
+        let radio = Ft891Personality()
+        let rig = Rig(radio: radio, radioID: .ft891, policy: Self.aiPolicy)
+        try await rig.start()
+        #expect(await rig.transport.isAIEnabled())
+
+        // Radio side loses AI state across the drop (fresh power-on rigs
+        // default AI off); the session must re-enable it on reconnect.
+        await rig.transport.dropLink()
+        radio.aiEnabled = false
+        await rig.clock.pump(.seconds(10))
+
+        let snap = await rig.snapshot()
+        #expect(snap.connection == .ready)
+        #expect(await rig.transport.isAIEnabled())
+        let enables = await rig.transport.journal.filter { $0 == .cat("AI1;") }
+        #expect(enables.count == 2) // initial + post-reconnect
+    }
+
+    @Test func disconnectPolitelyDisablesAI() async throws {
+        let radio = Ft891Personality()
+        let rig = Rig(radio: radio, radioID: .ft891, policy: Self.aiPolicy)
+        try await rig.start()
+        #expect(await rig.transport.isAIEnabled())
+
+        await rig.session.disconnect()
+        let journal = await rig.transport.journal
+        #expect(journal.contains(.cat("AI0;")))
+        #expect(!(await rig.transport.isAIEnabled()))
+    }
+}

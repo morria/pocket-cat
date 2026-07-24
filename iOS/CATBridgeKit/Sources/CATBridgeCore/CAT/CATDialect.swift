@@ -22,6 +22,12 @@ public protocol CATDialect: Sendable {
     var readPTT: CATCommand? { get }
     var readSMeter: CATCommand? { get }
 
+    /// Turn the radio's unsolicited state pushes on/off (Yaesu
+    /// Auto-Information). nil when the dialect has no such mechanism —
+    /// callers must also check `.autoInformation` in `capabilities`.
+    var enableAutoInformation: CATCommand? { get }
+    var disableAutoInformation: CATCommand? { get }
+
     func setFrequency(_ frequency: Frequency) throws -> CATCommand
     func setMode(_ mode: OperatingMode) throws -> CATCommand
     func keyerText(_ text: String) throws -> CATCommand
@@ -34,6 +40,10 @@ public protocol CATDialect: Sendable {
 }
 
 extension CATDialect {
+    /// Default: no auto-information mechanism.
+    public var enableAutoInformation: CATCommand? { nil }
+    public var disableAutoInformation: CATCommand? { nil }
+
     /// Frames are ASCII and end in ';' — shared sanity check for parsers.
     func requireTerminated(_ frame: String) throws {
         guard frame.hasSuffix(";") else {

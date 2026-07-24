@@ -95,6 +95,13 @@ public struct PollingPolicy: Sendable {
     public var busyRetryDelay: Duration = .milliseconds(50)
     /// Idle polling interval (`IF;` cadence).
     public var pollInterval: Duration = .milliseconds(500)
+    /// Opt-in: enable the radio's unsolicited state pushes (Yaesu
+    /// Auto-Information, `AI1;`) on radios that support them. Pushes fold
+    /// into the same state/snapshots the poller feeds, so apps see
+    /// near-instant frequency/mode updates with no code change. Polling
+    /// continues as a backstop (AI has known interleaving quirks and does
+    /// not exist on all radios). Off by default.
+    public var enableAutoInformation: Bool = false
     /// PTT watchdog: PTT-off if the app forgets (§7.4). Clears WSPR (2 min).
     public var pttWatchdog: Duration = .seconds(180)
     /// Reconnect backoff bounds.

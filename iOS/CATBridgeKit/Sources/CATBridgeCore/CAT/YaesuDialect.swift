@@ -24,7 +24,17 @@ public struct YaesuDialect: CATDialect {
 
     public var capabilities: RadioCapabilities {
         [.frequencyControl, .modeControl, .ptt, .sMeter, .keyerText,
-         .rfPowerControl]
+         .rfPowerControl, .autoInformation]
+    }
+
+    /// Yaesu Auto-Information: the rig pushes state frames unsolicited.
+    /// Sets, answered with silence like other Yaesu sets.
+    public var enableAutoInformation: CATCommand? {
+        CATCommand(wire: "AI1;", replyPrefix: nil)
+    }
+
+    public var disableAutoInformation: CATCommand? {
+        CATCommand(wire: "AI0;", replyPrefix: nil)
     }
 
     // Yaesu newcat mode table (Hamlib newcat_mode_conv[]).

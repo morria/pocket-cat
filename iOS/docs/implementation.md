@@ -281,6 +281,16 @@ The demux:
 - Backs off automatically while a user command is queued (user > poller).
 - Suspends when the app backgrounds without an active PTT (§7.4), resumes on
   foreground.
+- **Auto-Information opt-in** (`PollingPolicy.enableAutoInformation`, off by
+  default): on radios with the `.autoInformation` capability (Yaesu), the
+  session sends `AI1;` at link init — and again after every reconnect — so
+  the radio pushes state changes unsolicited. Pushes flow through the
+  existing `parseUnsolicited` path into the same state/snapshots, giving
+  near-instant frequency/mode updates with zero app-side change. Polling
+  continues unchanged as the backstop (AI interleaves with replies and has
+  rig-specific quirks; the poller also remains the only source on radios
+  without AI). `disconnect()` best-effort restores `AI0;` so other CAT
+  software isn't surprised later.
 
 ## 6. Connection Lifecycle & Baud Negotiation
 

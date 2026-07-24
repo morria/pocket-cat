@@ -91,6 +91,18 @@ actor ScriptedTransport: BridgeTransport {
         deliverCAT(Data(text.utf8))
     }
 
+    /// Operator turns the physical dial: the radio pushes the change only
+    /// when its Auto-Information mode is on.
+    func turnDial(to vfoA: String) {
+        if let frame = radio.dialTurn(to: vfoA) {
+            deliverCAT(Data(frame.utf8))
+        }
+    }
+
+    func isAIEnabled() -> Bool {
+        (radio as? Ft891Personality)?.aiEnabled ?? false
+    }
+
     /// Inject a CTRL event frame (EVT_USB / EVT_OVERFLOW).
     func injectCtrl(_ frame: CtrlFrame) {
         continuation.yield(.ctrlFrame(frame.encoded))

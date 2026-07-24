@@ -112,6 +112,15 @@ import Testing
             _ = try dialect.keyerText("bad;text")
         }
     }
+
+    @Test func autoInformationCommands() throws {
+        #expect(dialect.capabilities.contains(.autoInformation))
+        let enable = try #require(dialect.enableAutoInformation)
+        #expect(enable.wire == "AI1;")
+        #expect(enable.replyPrefix == nil) // Yaesu set: silence
+        let disable = try #require(dialect.disableAutoInformation)
+        #expect(disable.wire == "AI0;")
+    }
 }
 
 @Suite struct KenwoodDialectTests {
@@ -172,6 +181,12 @@ import Testing
         #expect(!dialect.capabilities.contains(.rfPowerControl))
         #expect(!dialect.capabilities.contains(.sMeter))
         #expect(dialect.capabilities.contains(.ptt))
+    }
+
+    @Test func noAutoInformationOnKenwood() {
+        #expect(!dialect.capabilities.contains(.autoInformation))
+        #expect(dialect.enableAutoInformation == nil)
+        #expect(dialect.disableAutoInformation == nil)
     }
 }
 

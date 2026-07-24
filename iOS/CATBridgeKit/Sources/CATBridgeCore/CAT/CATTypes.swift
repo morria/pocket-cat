@@ -33,6 +33,8 @@ public struct RadioCapabilities: OptionSet, Sendable {
     public static let sMeter = RadioCapabilities(rawValue: 1 << 3)
     public static let keyerText = RadioCapabilities(rawValue: 1 << 4)
     public static let rfPowerControl = RadioCapabilities(rawValue: 1 << 5)
+    /// The radio can push state changes unsolicited (Yaesu Auto-Information).
+    public static let autoInformation = RadioCapabilities(rawValue: 1 << 6)
 }
 
 /// The concrete radio model driving dialect selection and capabilities.

@@ -26,6 +26,10 @@ class RadioPersonality: @unchecked Sendable {
 
     func respond(to command: String) -> String { "?;" }
 
+    /// Operator turns the physical dial. Returns the unsolicited frame the
+    /// radio would push (Auto-Information on), or nil (AI off / no AI).
+    func dialTurn(to vfoA: String) -> String? { nil }
+
     /// Feed bytes; returns the radio's response bytes.
     func feed(_ data: Data) -> Data {
         var out = Data()
@@ -56,6 +60,7 @@ class RadioPersonality: @unchecked Sendable {
 final class Ft891Personality: RadioPersonality {
     var vfoA = "014074000" // 9 digits, Hz
     var mode: Character = "3" // CW
+    var aiEnabled = false
 
     override init() {
         super.init()
@@ -63,6 +68,11 @@ final class Ft891Personality: RadioPersonality {
     }
 
     override var idReply: String { "ID0650;" }
+
+    override func dialTurn(to newVFOA: String) -> String? {
+        vfoA = newVFOA
+        return aiEnabled ? "FA\(vfoA);" : nil
+    }
 
     override func respond(to cmd: String) -> String {
         switch cmd {
@@ -76,7 +86,9 @@ final class Ft891Personality: RadioPersonality {
         case "TX1;": transmitting = true; return ""
         case "TX0;": transmitting = false; return ""
         case "SM0;": return "SM0100;"
-        case "AI;": return "AI0;"
+        case "AI;": return aiEnabled ? "AI1;" : "AI0;"
+        case "AI1;": aiEnabled = true; return ""
+        case "AI0;": aiEnabled = false; return ""
         default:
             if cmd.hasPrefix("FA"), cmd.count == 12 {
                 let digits = String(Array(cmd)[2...10])
