@@ -16,7 +16,14 @@ public final class TransceiverState {
 
     public nonisolated init() {}
 
-    func apply(_ snapshot: TransceiverSnapshot) {
+    /// Highest sequence applied so far. Hops to the main actor are not
+    /// ordered relative to each other, so a late-arriving older snapshot
+    /// must not overwrite newer state (e.g. showing a stale frequency).
+    private var lastAppliedSequence: UInt64 = 0
+
+    func apply(_ snapshot: TransceiverSnapshot, sequence: UInt64) {
+        guard sequence > lastAppliedSequence else { return }
+        lastAppliedSequence = sequence
         connection = snapshot.connection
         radio = snapshot.radio
         frequency = snapshot.frequency

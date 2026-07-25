@@ -449,3 +449,112 @@ struct Rig {
         #expect(!(await rig.transport.isAIEnabled()))
     }
 }
+
+/// Regressions for defects found in the 2026-07-24 adversarial review.
+@Suite struct SessionRegressionTests {
+    @Test func cancellingInFlightCommandDoesNotWedgeTheSession() async throws {
+        // Was a permanent deadlock: a bare continuation is never resumed on
+        // cancellation, so the command slot stayed held forever and EVERY
+        // later command hung.
+        let rig = Rig(radio: Ft891Personality(), radioID: .ft891)
+        try await rig.start()
+
+        await rig.transport.setMuted(true) // reply never comes
+        let session = rig.session
+        let hanging = Task { try await session.readFrequency() }
+        for _ in 0..<50 { await Task.yield() }
+        hanging.cancel()
+        for _ in 0..<50 { await Task.yield() }
+        _ = try? await hanging.value
+
+        // The session must still work: unmute and issue a fresh command.
+        await rig.transport.setMuted(false)
+        let value = try await withThrowingTaskGroup(of: Frequency.self) {
+            group -> Frequency in
+            group.addTask { try await session.readFrequency() }
+            group.addTask {
+                await rig.clock.pump(.seconds(3))
+                throw CATBridgeError.timedOut(command: "test-guard")
+            }
+            let first = try await group.next()!
+            group.cancelAll()
+            return first
+        }
+        #expect(value == Frequency(hz: 14_074_000))
+    }
+
+    @Test func cancelledCommandsLateReplyDoesNotResolveTheNextOne() async throws {
+        let radio = Ft891Personality()
+        let rig = Rig(radio: radio, radioID: .ft891)
+        try await rig.start()
+
+        let session = rig.session
+        let cancelled = Task { try await session.readFrequency() }
+        for _ in 0..<20 { await Task.yield() }
+        cancelled.cancel()
+        for _ in 0..<50 { await Task.yield() }
+        _ = try? await cancelled.value
+
+        // A stale FA; reply for the cancelled command arrives now.
+        radio.vfoA = "007030000"
+        await rig.transport.injectCAT("FA014074000;")
+        for _ in 0..<50 { await Task.yield() }
+
+        // The next read must return the CURRENT value, not the stale one.
+        let fresh = try await session.readFrequency()
+        #expect(fresh == Frequency(hz: 7_030_000))
+    }
+
+    @Test func snapshotConsumersUnregisterWhenTheyStop() async throws {
+        // Was an unbounded leak: every snapshots() call appended a
+        // continuation that was never removed.
+        let rig = Rig(radio: Ft891Personality(), radioID: .ft891)
+        try await rig.start()
+
+        for _ in 0..<20 {
+            let stream = await rig.session.snapshots()
+            var iterator = stream.makeAsyncIterator()
+            _ = await iterator.next() // take one, then drop the stream
+        }
+        for _ in 0..<50 { await Task.yield() }
+        let remaining = await rig.session.snapshotConsumerCount
+        #expect(remaining <= 1, "leaked \(remaining) snapshot consumers")
+    }
+
+    @Test func disconnectFinishesStreamsInsteadOfHanging() async throws {
+        let rig = Rig(radio: Ft891Personality(), radioID: .ft891)
+        try await rig.start()
+
+        let session = rig.session
+        let drained = Task { () -> Bool in
+            for await _ in await session.snapshots() {}
+            return true // only reachable if the stream finishes
+        }
+        for _ in 0..<50 { await Task.yield() }
+        await session.disconnect()
+        #expect(await drained.value)
+    }
+
+    @Test func unsupportedDeviceIsNotReportedAsDetached() async throws {
+        let rig = Rig(radio: Ft891Personality(), radioID: .ft891)
+        try await rig.start()
+
+        let session = rig.session
+        let eventTask = Task { () -> SessionEvent? in
+            for await event in await session.events() {
+                if case .usbDeviceUnsupported = event { return event }
+                if case .usbRadioDetached = event { return event }
+            }
+            return nil
+        }
+        for _ in 0..<50 { await Task.yield() }
+
+        // Bridge reports ERROR + a device id: attached but unopenable.
+        await rig.transport.injectCtrl(
+            CtrlFrame(op: CtrlOp.evtUSB.rawValue, payload: Data([2, 5])))
+        for _ in 0..<50 { await Task.yield() }
+        await session.disconnect() // ends the events stream
+
+        #expect(await eventTask.value == .usbDeviceUnsupported(.unsupported))
+    }
+}

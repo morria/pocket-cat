@@ -46,6 +46,10 @@ public enum SessionEvent: Sendable, Equatable {
     case bridgeOverflow(OverflowDirection, dropped: UInt32)
     case usbRadioAttached(BridgeRadioID)
     case usbRadioDetached
+    /// A device is plugged into the bridge but no CAT interface could be
+    /// opened for it. Distinct from `.usbRadioDetached` so an app can say
+    /// "unsupported device" instead of the misleading "no radio".
+    case usbDeviceUnsupported(BridgeRadioID)
 }
 
 // MARK: - Bridge health (from STATUS)

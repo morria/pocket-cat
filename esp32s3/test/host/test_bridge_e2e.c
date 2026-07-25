@@ -741,6 +741,33 @@ static void test_soak_1000_commands_journaled(void)
     TEST_ASSERT_EQUAL_UINT32(0, ring_dropped(&B.rb_ble_to_usb));
 }
 
+static void test_unsupported_device_not_reported_enumerated(void)
+{
+    /* A device the bridge cannot open must NOT claim ENUMERATED: that
+     * state means "CAT interface open" (protocol.md §3). */
+    sim_setup(RADIO_P_FT891, 4800, 185);
+    bridge_on_usb_unsupported(&B, CTRL_RADIO_UNSUPPORTED);
+    sim_run_ms(10);
+
+    ctrl_frame_t f;
+    TEST_ASSERT_TRUE(last_ctrl_frame(CTRL_OP_EVT_USB, &f) > 0);
+    TEST_ASSERT_EQUAL_UINT8(CTRL_USB_ERROR, f.payload[0]);
+    TEST_ASSERT_EQUAL_UINT8(CTRL_RADIO_UNSUPPORTED, f.payload[1]);
+
+    uint8_t snap[CTRL_STATUS_SIZE];
+    ctrl_status_t st;
+    bridge_status_read(&B, snap, sizeof snap);
+    TEST_ASSERT_EQUAL_INT(0, ctrl_status_decode(snap, sizeof snap, &st));
+    TEST_ASSERT_EQUAL_UINT8(CTRL_USB_ERROR, st.usb_state);
+    TEST_ASSERT_EQUAL_UINT8(CTRL_RADIO_UNSUPPORTED, st.radio_id);
+
+    /* And nothing is forwarded to a device we never opened. */
+    size_t rx_before = S.radio.rx_journal_len;
+    central_send("FA;");
+    sim_run_ms(50);
+    TEST_ASSERT_EQUAL_size_t(rx_before, S.radio.rx_journal_len);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -759,6 +786,7 @@ int main(void)
     RUN_TEST(test_radio_mute_fault);
     RUN_TEST(test_radio_stall_fault_partial_response);
     RUN_TEST(test_purge_command);
+    RUN_TEST(test_unsupported_device_not_reported_enumerated);
     RUN_TEST(test_soak_1000_commands_journaled);
     return UNITY_END();
 }

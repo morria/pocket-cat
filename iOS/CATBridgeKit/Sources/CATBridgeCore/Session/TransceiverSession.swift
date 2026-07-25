@@ -64,26 +64,63 @@ public actor TransceiverSession {
         watchdogTask?.cancel()
         failCATInFlight(error: .connectionLost)
         failCtrlInFlight(error: .connectionLost)
+        // Wake anything queued behind the slot; each will observe the
+        // non-ready phase and throw rather than wait forever.
+        drainWaiters()
         await transport.disconnect()
         setPhase(.idle)
         eventTask?.cancel()
+        // Let consumers' `for await` loops end instead of hanging.
+        for continuation in snapshotContinuations.values { continuation.finish() }
+        snapshotContinuations.removeAll()
+        for continuation in eventContinuations.values { continuation.finish() }
+        eventContinuations.removeAll()
+    }
+
+    private func drainWaiters() {
+        let slots = slotWaiters
+        slotWaiters.removeAll()
+        slotBusy = false
+        for waiter in slots { waiter.resume() }
+        let ctrls = ctrlWaiters
+        ctrlWaiters.removeAll()
+        ctrlBusy = false
+        for waiter in ctrls { waiter.resume() }
     }
 
     public var capabilities: RadioCapabilities { dialect?.capabilities ?? [] }
 
     /// Immutable state snapshots; the current snapshot is emitted first.
+    /// Each call returns an independent stream. Streams unregister when the
+    /// consumer stops iterating or the task is cancelled.
     public func snapshots() -> AsyncStream<TransceiverSnapshot> {
         AsyncStream { continuation in
+            let id = UUID()
+            continuation.onTermination = { [weak self] _ in
+                Task { await self?.removeSnapshotConsumer(id) }
+            }
+            self.snapshotContinuations[id] = continuation
             continuation.yield(self.model)
-            self.snapshotContinuations.append(continuation)
         }
     }
 
     /// Out-of-band session events (watchdog, overflow, USB attach/detach).
     public func events() -> AsyncStream<SessionEvent> {
         AsyncStream { continuation in
-            self.eventContinuations.append(continuation)
+            let id = UUID()
+            continuation.onTermination = { [weak self] _ in
+                Task { await self?.removeEventConsumer(id) }
+            }
+            self.eventContinuations[id] = continuation
         }
+    }
+
+    private func removeSnapshotConsumer(_ id: UUID) {
+        snapshotContinuations.removeValue(forKey: id)
+    }
+
+    private func removeEventConsumer(_ id: UUID) {
+        eventContinuations.removeValue(forKey: id)
     }
 
     // MARK: - Radio control
@@ -167,6 +204,8 @@ public actor TransceiverSession {
 
     /// Diagnostic counters.
     public var garbageFrameCount: Int { demux.garbageFrames }
+    /// Live snapshot-stream consumers (diagnostic; guards against leaks).
+    public var snapshotConsumerCount: Int { snapshotContinuations.count }
 
     // MARK: - Private state
 
@@ -176,8 +215,15 @@ public actor TransceiverSession {
 
     private var model = TransceiverSnapshot()
     private var lastPublished: TransceiverSnapshot?
-    private var snapshotContinuations: [AsyncStream<TransceiverSnapshot>.Continuation] = []
-    private var eventContinuations: [AsyncStream<SessionEvent>.Continuation] = []
+    /// Keyed so terminated consumers can unregister — an append-only array
+    /// would grow without bound as views come and go.
+    private var snapshotContinuations:
+        [UUID: AsyncStream<TransceiverSnapshot>.Continuation] = [:]
+    private var eventContinuations:
+        [UUID: AsyncStream<SessionEvent>.Continuation] = [:]
+    /// Monotonic publish counter: `Task { @MainActor }` hops are not
+    /// ordered, so the observable state drops out-of-order applies.
+    private var publishSequence: UInt64 = 0
 
     private var dialect: (any CATDialect)?
     private var demux = ResponseDemux()
@@ -230,15 +276,17 @@ public actor TransceiverSession {
         guard model != lastPublished else { return }
         lastPublished = model
         let snapshot = model
-        for continuation in snapshotContinuations {
+        for continuation in snapshotContinuations.values {
             continuation.yield(snapshot)
         }
+        publishSequence += 1
+        let sequence = publishSequence
         let state = self.state
-        Task { @MainActor in state.apply(snapshot) }
+        Task { @MainActor in state.apply(snapshot, sequence: sequence) }
     }
 
     private func emit(_ event: SessionEvent) {
-        for continuation in eventContinuations {
+        for continuation in eventContinuations.values {
             continuation.yield(event)
         }
     }
@@ -412,22 +460,41 @@ public actor TransceiverSession {
         }
 
         let effectiveDeadline = deadline ?? commandDeadline
-        let reply: String = try await withCheckedThrowingContinuation {
-            (continuation: CheckedContinuation<String, Error>) in
-            let id = UUID()
-            catInFlight = CATInFlight(id: id, command: command,
-                                      continuation: continuation)
-            catInFlight?.deadlineTask = makeCATDeadline(
-                id: id, after: effectiveDeadline)
-            Task {
-                do {
-                    try await self.transport.writeCAT(data)
-                } catch {
-                    self.failCAT(id: id, error: .connectionLost)
+        let id = UUID()
+        // withTaskCancellationHandler is essential: a bare continuation is
+        // never resumed when the calling Task is cancelled, which would
+        // leak the continuation AND hold the command slot forever — a
+        // permanent session deadlock.
+        let reply: String = try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation {
+                (continuation: CheckedContinuation<String, Error>) in
+                catInFlight = CATInFlight(id: id, command: command,
+                                          continuation: continuation)
+                catInFlight?.deadlineTask = makeCATDeadline(
+                    id: id, after: effectiveDeadline)
+                Task {
+                    do {
+                        try await self.transport.writeCAT(data)
+                    } catch {
+                        self.failCAT(id: id, error: .connectionLost)
+                    }
                 }
             }
+        } onCancel: {
+            Task { await self.cancelCAT(id: id) }
         }
         return reply
+    }
+
+    /// Abandon a cancelled in-flight command. The reply may still arrive:
+    /// record its prefix so the late-reply rule discards it instead of
+    /// resolving the *next* command with stale data.
+    private func cancelCAT(id: UUID) {
+        guard let inFlight = catInFlight, inFlight.id == id else { return }
+        inFlight.deadlineTask?.cancel()
+        catInFlight = nil
+        lastTimedOutPrefix = inFlight.command.replyPrefix
+        inFlight.continuation.resume(throwing: CancellationError())
     }
 
     private func makeCATDeadline(id: UUID, after duration: Duration)
@@ -575,24 +642,35 @@ public actor TransceiverSession {
     private func performCtrl(_ frame: CtrlFrame) async throws -> CtrlReply {
         await acquireCtrl()
         defer { releaseCtrl() }
-        return try await withCheckedThrowingContinuation { continuation in
-            let id = UUID()
-            ctrlInFlight = CtrlInFlight(id: id, op: frame.op,
-                                        continuation: continuation)
-            ctrlInFlight?.deadlineTask = Task {
-                try? await self.clock.sleep(for: self.policy.ctrlDeadline)
-                if Task.isCancelled { return }
-                self.ctrlDeadlineFired(id: id)
-            }
-            let encoded = frame.encoded
-            Task {
-                do {
-                    try await self.transport.writeCtrl(encoded)
-                } catch {
-                    self.failCtrl(id: id, error: .connectionLost)
+        let id = UUID()
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                ctrlInFlight = CtrlInFlight(id: id, op: frame.op,
+                                            continuation: continuation)
+                ctrlInFlight?.deadlineTask = Task {
+                    try? await self.clock.sleep(for: self.policy.ctrlDeadline)
+                    if Task.isCancelled { return }
+                    self.ctrlDeadlineFired(id: id)
+                }
+                let encoded = frame.encoded
+                Task {
+                    do {
+                        try await self.transport.writeCtrl(encoded)
+                    } catch {
+                        self.failCtrl(id: id, error: .connectionLost)
+                    }
                 }
             }
+        } onCancel: {
+            Task { await self.cancelCtrl(id: id) }
         }
+    }
+
+    private func cancelCtrl(id: UUID) {
+        guard let inFlight = ctrlInFlight, inFlight.id == id else { return }
+        inFlight.deadlineTask?.cancel()
+        ctrlInFlight = nil
+        inFlight.continuation.resume(throwing: CancellationError())
     }
 
     private func ctrlDeadlineFired(id: UUID) {
@@ -663,7 +741,13 @@ public actor TransceiverSession {
             failsafeArmed = false
             model.isTransmitting = false
             failCATInFlight(error: .usbRadioDisconnected)
-            emit(.usbRadioDetached)
+            // The bridge reports ERROR with a non-none radio id when a
+            // device is attached that it could not open for CAT.
+            if case .error = usbState, radio != .none {
+                emit(.usbDeviceUnsupported(radio))
+            } else {
+                emit(.usbRadioDetached)
+            }
             publish()
         }
     }

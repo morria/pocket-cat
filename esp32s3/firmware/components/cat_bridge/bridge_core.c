@@ -103,6 +103,17 @@ void bridge_on_usb_connected(bridge_t *b, ctrl_radio_id_t radio,
     mark_usb_change(b);
 }
 
+void bridge_on_usb_unsupported(bridge_t *b, ctrl_radio_id_t radio)
+{
+    /* NOT ENUMERATED: protocol.md defines that state as "radio attached and
+     * CAT interface open". Claiming it here would make the app believe it
+     * can talk to a device we never opened. */
+    atomic_store(&b->usb_state, (uint8_t)CTRL_USB_ERROR);
+    atomic_store(&b->radio_id, (uint8_t)radio);
+    b->baud = 0;
+    mark_usb_change(b);
+}
+
 void bridge_on_usb_disconnected(bridge_t *b)
 {
     atomic_store(&b->usb_state, (uint8_t)CTRL_USB_WAITING);

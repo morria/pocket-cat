@@ -225,8 +225,12 @@ static void try_open(const link_evt_t *evt)
     if (evt->profile.driver == RD_DRIVER_NONE ||
         evt->profile.driver == RD_DRIVER_FTDI) {
         /* Unsupported (or not-yet-implemented FTDI): stay attached and
-         * report so the app can tell the user (§5.2). */
-        bridge_on_usb_connected(s_link.bridge, CTRL_RADIO_UNSUPPORTED, 0);
+         * report so the app can tell the user (§5.2). Reported as an error
+         * state, not ENUMERATED — we never opened a CAT interface. */
+        bridge_on_usb_unsupported(s_link.bridge,
+                                  evt->profile.driver == RD_DRIVER_FTDI
+                                      ? CTRL_RADIO_GENERIC_FTDI
+                                      : CTRL_RADIO_UNSUPPORTED);
         return;
     }
 

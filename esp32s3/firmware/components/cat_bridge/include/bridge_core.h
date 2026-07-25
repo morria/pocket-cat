@@ -120,6 +120,11 @@ void bridge_set_mtu(bridge_t *b, uint16_t att_mtu);
 /* --- USB lifecycle (called from the bridge/usb task context) -------------- */
 void bridge_on_usb_connected(bridge_t *b, ctrl_radio_id_t radio,
                              uint32_t default_baud);
+/* A device is attached but we could not open a CAT interface for it
+ * (unknown descriptor, or a driver we don't implement). Reports the radio
+ * id so the app can say "unsupported device" rather than "no radio", while
+ * keeping usb_state out of ENUMERATED — nothing can be written. */
+void bridge_on_usb_unsupported(bridge_t *b, ctrl_radio_id_t radio);
 void bridge_on_usb_disconnected(bridge_t *b);
 void bridge_on_usb_error(bridge_t *b);
 
