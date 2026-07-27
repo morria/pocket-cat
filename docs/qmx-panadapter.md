@@ -38,8 +38,13 @@ I/Q source on another radio reuses the whole path unchanged.
 
 ## 2. Budget
 
-At the QMX's expected 48 kHz stereo 16-bit, raw I/Q is 1.54 Mbps — about 10×
-what BLE can carry, so the decimation is not optional. Measured against a
+At 48 kHz stereo 16-bit, raw I/Q is 1.54 Mbps — about 10× what BLE can
+carry, so the decimation is not optional. **Expect 24-bit, not 16**: the
+QMX's sound card streams 24-bit samples (it needs the dynamic range for
+I/Q; QRP Labs documents 48 ksps 24-bit). That is 2.3 Mbps raw — still
+trivial on USB, irrelevant to BLE (bins are 8-bit regardless), but the
+DSP front end must ingest 3-byte packed samples from day one. Treat
+16-bit as the *surprise* case, not the plan. Measured against a
 conservative 100–300 kbps sustained notification budget (**to be verified on
 hardware, not assumed**):
 
@@ -74,14 +79,29 @@ Base UUID `8f1dXXXX-52a4-4e1e-b34b-9d40b71d6e01`; `0001`–`0005` are taken
 
 - `enable = 0` stops streaming; remaining fields ignored.
 - `bins` ∈ {64, 128, 256, 512}; `fps` ∈ 1–30. Anything else → `BAD_ARG`.
+- `enable = 1` while already streaming is a **reconfigure**, ACKed, never
+  `BUSY` — so the app can change bins/fps in one call without a
+  stop/start glitch. (`BUSY` is reserved for a transient internal state,
+  e.g. mid USB attach; the app treats it as retryable.)
+- The firmware validates *achievability at the live ATT MTU* before
+  ACKing: fragments per frame × fps must fit its notify budget. A 23-byte
+  MTU asking for 512 bins @ 30 fps is `BAD_ARG`, not a silent stall —
+  §3.3's "any MTU ≥ 32" is a statement about frame-format correctness,
+  not throughput, and bench clients at default MTU would otherwise see a
+  permanently blank waterfall.
 - Streaming **auto-stops** on BLE disconnect and on USB detach. It is never
   persisted; a reconnecting central starts quiet.
+- The `SPECTRUM` characteristic is notify-gated on subscription (the
+  `status_subscribed` pattern in `ble_link.c`): no subscriber, no work.
 
 **Capability discovery costs nothing new.** Firmware without the DSP path
 answers `NAK` with `CTRL_ERR_UNSUPPORTED` — already defined at
 `ctrl_proto.h:42` and currently unused. So the app probes by asking, and the
 22-byte `STATUS` layout (protocol.md §3) does not change. No format-version
-bump, no golden-vector churn on the existing status path.
+bump, no golden-vector churn on the existing status path. **The probe must
+also treat `CTRL_ERR_UNKNOWN_OP` as "absent"** — that is what every
+*currently shipped* firmware answers for opcode `0x07`, and it is the
+answer the probe will actually meet in the field for the next year.
 
 ### 3.3 Frame format
 
@@ -89,23 +109,44 @@ Little-endian, consistent with §2. Fragment 0 carries the header; continuation
 fragments carry only enough to place their bins.
 
 ```
-frag 0 : [seq:u8][frag:u8=0][nfrags:u8][first_bin:u16][bins_total:u16]
-         [sample_rate_hz:u32][bin bytes…]            header = 11 B
+frag 0 : [seq:u8][frag:u8=0][nfrags:u8][flags:u8][first_bin:u16]
+         [bins_total:u16][sample_rate_hz:u32][bin bytes…]   header = 12 B
 frag n : [seq:u8][frag:u8][nfrags:u8][first_bin:u16][bin bytes…]
-                                                     header =  5 B
+                                                            header =  5 B
 ```
 
+- `flags` is reserved (0 in v1) — one byte buys format evolution
+  (averaged/peak-hold traces, 16-bit bins) without a new characteristic.
+  Non-zero flags the decoder doesn't know → drop the frame, don't guess.
 - Bins are **dBFS at 0.5 dB/LSB**: `0` = full scale, `255` = −127.5 dBFS.
-  128 dB of range, more than the radio has. No absolute calibration —
-  the bridge cannot know the gain distribution ahead of it; the app applies a
-  per-radio offset if it wants dBm.
-- Bin 0 is the lowest frequency of the window; the centre bin is DC, i.e. the
-  tuned frequency. Span is `sample_rate_hz`.
-- `seq` increments per frame and wraps. The central **drops any frame whose
-  fragments are incomplete or out of order** — no reassembly across sequence
-  numbers, no retransmission.
+  128 dB of range, more than the radio has. The dB reference is defined
+  against a full-scale sine *after* the specified window (Hann) and FFT
+  normalisation — pin this in the golden vectors or the synthetic-source
+  tests will silently bake in whatever the first implementation did.
+- Bin 0 is the lowest frequency of the window; **bin `bins_total/2` is DC**
+  (even split: one extra bin below centre than above). Span is
+  `sample_rate_hz`.
+- **DC handling is mandatory, not cosmetic.** Direct-conversion I/Q has a
+  DC offset that renders as a permanent fake carrier on the tuned
+  frequency — the classic panadapter bug. The firmware subtracts the
+  block mean before the FFT; the app may additionally interpolate the
+  centre bin for display. Likewise assume **spectral inversion is
+  possible** (I/Q swapped somewhere in the chain): verify against a known
+  off-centre signal at M5 and, if mirrored, flip in `QMXKit` — never in
+  firmware, which cannot know.
+- `seq` is assigned **when a frame is generated, not when transmitted**,
+  increments per frame, and wraps. Dropped frames therefore appear to the
+  central as sequence gaps — that is the drop-reporting mechanism (§3.4).
+- Frames are transmitted **atomically**: all fragments of a frame are
+  handed to the stack back-to-back, and if any fragment's notify fails
+  the remaining fragments are abandoned (the partial frame dies on the
+  air). The central drops any incomplete frame; a `frag 0` bearing a new
+  `seq` always resets reassembly, discarding whatever was pending.
 
-At ATT_MTU 185, 256 bins is 2 fragments; the design tolerates any MTU ≥ 32.
+At ATT_MTU 185, 256 bins is 2 fragments; at the negotiated 247 (the
+firmware's `ATT_PREFERRED_MTU`) it is also 2. The *format* tolerates any
+MTU ≥ 32; achievability at small MTUs is enforced at `SET_SPECTRUM`
+(§3.2).
 
 ### 3.4 A deliberate exception to the data-path guarantees
 
@@ -120,8 +161,17 @@ backlog that delayed CAT or CTRL traffic could trip the failsafe mid-
 transmission, or mask a real link loss. CAT always wins; a stale waterfall row
 is worthless anyway.
 
-Dropped frames are reported by reusing `EVT_OVERFLOW` (`0x83`) with a new
-`which = 2` (spectrum), keeping its existing 1/s rate limit.
+**Dropped frames are reported by the `seq` gap alone — do NOT reuse
+`EVT_OVERFLOW`.** An earlier draft proposed `EVT_OVERFLOW` with
+`which = 2`; that is a live-fire bug against the shipped decoder:
+`CtrlProtocol.swift:139` decodes *any* non-zero direction byte as
+`.bleToUSB`, and the session's `handleOverflow` responds by resetting the
+CAT demux and **failing the in-flight CAT command**
+(`TransceiverSession.swift`, overflow path). Spectrum drops are routine
+by design, so reusing the event would convert normal operation into a
+stream of spurious CAT failures and user-facing "bridge dropped bytes"
+notices. Sequence gaps carry the same information for free, per-frame,
+with no rate limit and no cross-version hazard.
 
 ## 4. Firmware design
 
@@ -184,21 +234,50 @@ with a QMX-shaped fixture — audio on 0/1/2, CDC comm on 3, data on 4, assertin
 must re-issue it after every radio power cycle, and on reconnect if the radio
 may have been cycled.
 
-**The tradeoff must surface in the UI:** `Q9` streams I/Q *instead of*
-demodulated audio. Turning the panadapter on therefore takes away the audio
-that WSJT-X-style decoding uses on that same sound card
-(`QMXMenuNotes.swift:32,86`). The user cannot have both at once. The app should
-say so plainly rather than silently changing what the radio's USB audio means.
+**The tradeoff is real but narrower than it looks.** `Q9` streams I/Q
+*instead of* demodulated audio on the same sound card. In the Pocket Cat
+system, however, **nothing consumes that audio today** — the bridge does
+not claim the UAC interfaces, and there is no host computer in the loop —
+so flipping `Q9` costs the current user nothing. It matters in two future
+cases: phone-side audio decoding (§10 non-goal) becomes impossible while
+the panadapter runs, and a QMX later replugged into a PC mid-session
+would hand WSJT-X I/Q instead of audio (self-healing on power cycle,
+since `Q9` is session-only). Disclose the mode in the UI for honesty,
+but don't architect around a conflict that doesn't exist yet.
+
+Two operational details the app must own:
+
+- **Re-issue and verify.** Reassert `Q9` on session ready and on every
+  `usbRadioAttached` event (a radio power cycle drops USB, and the
+  setting died with it) — and read `Q9;` back rather than assuming.
+- **Transmit blanks the stream.** During PTT the RX chain's I/Q is not
+  meaningful; the waterfall should visibly pause/grey during TX rather
+  than paint junk rows into history.
 
 ## 6. iOS design
 
+**Spectrum data must ride the `BridgeTransport` seam, not bypass it.**
+The tempting shortcut — `CATBridgeBLE` publishing an
+`AsyncStream<SpectrumFrame>` directly off the characteristic — cuts every
+simulator out of the loop: `QMXSimTransport`, `FT891SimTransport`, and
+the scripted test transports implement `BridgeTransport`, and anything
+that doesn't flow through it cannot be faked, which forfeits the repo's
+entire no-hardware test strategy (and M3). Instead: `TransportEvent`
+gains a `.spectrumData(Data)` case (raw fragments), the **session** owns
+reassembly and exposes `spectrumFrames() -> AsyncStream<SpectrumFrame>`
+plus `setSpectrum(bins:fps:)`/`stopSpectrum()` beside its other typed
+APIs. Thirty events/s through the session actor is noise next to its
+per-command traffic. This also keeps the single-consumer `events` model
+intact instead of inventing a second delivery path.
+
 | Layer | Addition |
 |---|---|
-| `CATBridgeCore/Spectrum/` | `SpectrumFrame` + reassembly: fragment ordering, sequence gaps, drop-on-incomplete. Pure, headless-testable, **no CoreBluetooth** (ios-implementation.md §3). |
-| `CATBridgeBLE` | Subscribe `0006`; publish `AsyncStream<SpectrumFrame>`. `BridgeGATT.swift` gains the UUID. |
-| `CATBridgeCore/Ctrl` | `SET_SPECTRUM` encode + `UNSUPPORTED` handling in `CtrlProtocol.swift`. |
-| `QMXKit` | Panadapter session policy: issue `Q9`, re-issue after power cycle, map VFO frequency onto the axis, own the calibration offset. |
-| `QMXUI` | Trace view + waterfall. |
+| `CATBridgeCore/Spectrum/` | `SpectrumFrame` + reassembly: fragment ordering, sequence gaps, flags check, drop-on-incomplete. Pure, headless-testable, **no CoreBluetooth** (ios-implementation.md §3). |
+| `CATBridgeCore/Session` | `.spectrumData` transport event; `spectrumFrames()` stream; `setSpectrum`/`stopSpectrum` (CTRL); auto-`stopSpectrum` on `scenePhase` background is the app's job, but the session stops on disconnect for free. |
+| `CATBridgeBLE` | Subscribe `0006`; forward fragments as `.spectrumData`. `BridgeGATT.swift` gains the UUID. |
+| `CATBridgeCore/Ctrl` | `SET_SPECTRUM` encode + `UNSUPPORTED`/`UNKNOWN_OP` probe handling in `CtrlProtocol.swift`. |
+| `QMXKit` | Panadapter policy: issue + verify `Q9`, re-issue on USB re-attach, map VFO frequency onto the axis, own the calibration offset and any spectral flip. `QMXSimTransport` gains a synthetic sweep source so previews/tests render with no hardware. |
+| `QMXUI` | Trace view + waterfall; TX blanking; stop streaming when backgrounded (waterfalls in the background only burn the bridge's 500 mAh cell). |
 
 Rendering: SwiftUI `Canvas` is adequate for a 256-bin trace at 15 fps. For a
 scrolling waterfall with history, use a Metal texture and shift rows rather
@@ -209,6 +288,20 @@ the axis is `vfo ± sample_rate/2`, adjusted for any offset the QMX applies in
 I/Q mode. **Confirm on hardware whether the I/Q stream is centred on the VFO
 or offset** — this is exactly the kind of radio-specific detail that belongs in
 `QMXKit`, not the firmware.
+
+Three labelling edge cases that will otherwise ship as bugs:
+
+- **Retuning smears history.** Waterfall rows were captured at the old
+  VFO; on QSY the app must either shift history horizontally by Δf (nice)
+  or clear it (honest). Doing neither paints signals at frequencies they
+  were never on — users notice immediately, especially while dragging the
+  dial through a band.
+- **RIT and split**: the axis should track the *receive* frequency
+  (VFO ± RIT; VFO A vs B per `FR`), not blindly `FA`.
+- **Display quality**: a single 512-point FFT per frame is visually
+  noisy. Averaging 2–4 FFTs per emitted frame costs a rounding error of
+  CPU (§2 headroom) and transforms the trace; make it the synthetic
+  source's default so golden expectations include it.
 
 ## 7. Testing
 
@@ -224,8 +317,11 @@ Mirrors the existing strategy (`esp32s3/docs/implementation.md` §7):
   `ble_client.py` gains a `spectrum` subcommand for bench use.
 - **Swift**: reassembly against gaps, duplicates, truncation, MTU changes.
 - **HIL, the acceptance test that matters**: `soak.py` runs CAT polling *and*
-  spectrum concurrently, asserting **CAT round-trip latency does not regress**
-  and that frames drop (not queue) under induced backpressure.
+  spectrum concurrently, asserting **CAT round-trip latency does not regress**,
+  that frames drop (not queue) under induced backpressure, and — explicitly —
+  that **the failsafe never trips** during a sustained spectrum + keyed-TX
+  soak. That last assertion is the safety property §3.4 exists for; test it
+  by name, not by implication.
 
 ## 8. Milestones
 
@@ -245,7 +341,11 @@ M1–M3 need no radio and no USB work. M4 onward is where the unknowns live.
 
 | Risk | Impact | Mitigation |
 |---|---|---|
-| QMX config descriptor > 256 B | Total enumeration failure, silent | M0, before anything else |
+| QMX config descriptor > 256 B | Total enumeration failure, silent | M0, before anything else — and the raise lands in `sdkconfig.defaults` (the checked-in source of truth), not the generated `sdkconfig` |
+| 24-bit samples assumed late | DSP front-end rework | §2: plan for 3-byte packed from day one |
+| DC spike / spectral inversion | Fake carrier at VFO; mirrored display | §3.3: mean-subtract in firmware; flip check at M5 in QMXKit |
+| Small-MTU client requests unachievable bins×fps | Silent blank waterfall on bench tools | §3.2: `SET_SPECTRUM` validates against live MTU |
+| Panadapter halves bridge battery | User surprise | §6 background auto-stop; publish the measured runtime in M6, in the README, next to the 500 mAh figure |
 | `usb_host_uac` incompatible with IDF 5.3 or with a concurrent CDC claim | Kills the source; transport still usable with a stub | Prove in M4; the stub keeps M1–M3 shippable |
 | QMX descriptor declares an unexpected rate/format | Rework of the DSP front end | Read the real descriptor early in M0 |
 | iOS notify throughput below budget | Fewer bins or lower fps | `fps`/`bins` are runtime parameters; measure in M6 |
