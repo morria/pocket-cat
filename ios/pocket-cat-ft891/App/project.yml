@@ -1,0 +1,50 @@
+# Xcode shell for the FT891 app. Regenerate after edits:
+#   cd App && xcodegen generate
+name: FT891
+options:
+  bundleIdPrefix: radio.ft891
+  deploymentTarget:
+    iOS: "17.0"
+packages:
+  FT891:
+    path: ..
+targets:
+  FT891App:
+    type: application
+    platform: iOS
+    sources:
+      - FT891App
+    dependencies:
+      - package: FT891
+        product: FT891UI
+    info:
+      path: FT891App/Info.plist
+      properties:
+        CFBundleDisplayName: FT-891
+        UILaunchScreen: {}
+        NSBluetoothAlwaysUsageDescription: >-
+          FT-891 connects to your Pocket Cat CAT bridge over Bluetooth to
+          control the radio.
+        UIBackgroundModes:
+          - bluetooth-central
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+        NSUbiquitousContainers:
+          iCloud.radio.ft891.FT891App:
+            NSUbiquitousContainerIsDocumentScopePublic: true
+            NSUbiquitousContainerName: FT-891
+            NSUbiquitousContainerSupportedFolderLevels: Any
+    entitlements:
+      path: FT891App/FT891App.entitlements
+      properties:
+        com.apple.developer.icloud-services:
+          - CloudDocuments
+        com.apple.developer.icloud-container-identifiers:
+          - iCloud.radio.ft891.FT891App
+        com.apple.developer.ubiquity-container-identifiers:
+          - iCloud.radio.ft891.FT891App
+    settings:
+      base:
+        SWIFT_VERSION: "6.0"
+        TARGETED_DEVICE_FAMILY: "1"
+        INFOPLIST_KEY_UIUserInterfaceStyle: Automatic
