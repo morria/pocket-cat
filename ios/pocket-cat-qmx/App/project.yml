@@ -48,3 +48,5 @@ targets:
         SWIFT_VERSION: "6.0"
         TARGETED_DEVICE_FAMILY: "1"
         INFOPLIST_KEY_UIUserInterfaceStyle: Automatic
+        DEVELOPMENT_TEAM: 7Q2SS8772K
+        CODE_SIGN_STYLE: Automatic
