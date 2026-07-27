@@ -8,6 +8,11 @@ the USB device attached to the XIAO.
 **Closed size: 57.2 × 47.2 × 18.9 mm.** Two printed parts, one bolt, one
 nut.
 
+This is the reference for the case itself. For the whole build in order —
+buy, print, flash, solder, assemble, install the app — start at
+[`../BUILD.md`](../BUILD.md). Parts and the tools you'll need are in
+[`../BOM.md`](../BOM.md).
+
 ---
 
 ## Files
@@ -166,18 +171,24 @@ carries the shear; the bolt only resists lift.
 **Wiring** — work with the halves side by side, and allow **60 mm** per
 run so the lid can lie flat during service.
 
-9. Cut the JST plug off the cell. Solder its leads to BAT+ and BAT− on
-   the underside of the XIAO, bend the wires flat immediately, and put a
-   blob of hot glue over the joint. Those pads lift if a wire is tugged.
+9. Cut the JST plug off the cell — **one lead at a time**. Cutting both
+   at once shorts the cell through the cutters. Verify which lead is
+   positive with a meter before you trust the colours. Then solder the
+   leads to BAT+ and BAT− on the underside of the XIAO, bend the wires
+   flat immediately, and put a blob of hot glue over the joint. Those
+   pads lift if a wire is tugged.
 10. Wire cell + to the switch common, and the switched output to both the
     XIAO BAT+ and the boost Vin. Switching off then kills the boost as
     well, so its output cannot fight a host's VBUS when a PC is plugged
     into the USB-C port to reflash.
 11. Wire cell − to boost GND.
-12. Wire boost 5V and GND to VUSB and GND on the XIAO. Twist both the
-    input and output pairs tightly — loop area is what radiates.
-13. Check whether En has a pull-up on your boost module. If not, tie it
+12. Check whether En has a pull-up on your boost module. If not, tie it
     to Vin.
+13. **Measure before you connect.** Switch on and check the boost output
+    with a meter: it must read 5 V. If it reads 0 V, En is the usual
+    culprit. Only then wire boost 5V and GND to VUSB and GND on the
+    XIAO. Twist both the input and output pairs tightly — loop area is
+    what radiates.
 
 **Close**
 

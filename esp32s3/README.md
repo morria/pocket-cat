@@ -22,29 +22,68 @@ test/
 docs/                implementation plan, protocol spec, references/
 ```
 
-## Build & flash
+## Prerequisites
+
+- **ESP-IDF ≥ 5.2** (CI builds against 5.3) — install per
+  [Espressif's getting-started guide](https://docs.espressif.com/projects/esp-idf/en/stable/esp32s3/get-started/).
+  Every new shell needs `. $HOME/esp/esp-idf/export.sh`.
+- **Python 3** with `pytest pytest-timeout pyserial`, for the tools tests.
+- **A USB-to-UART dongle with 3.3 V logic** (CP2102, CH340, FT232) to flash.
+  A 5 V-only dongle will damage the board.
+
+Verify with `idf.py --version`.
+
+## Build
 
 ```sh
 cd firmware
-idf.py set-target esp32s3
+idf.py set-target esp32s3      # once per checkout
 idf.py build
-idf.py -p /dev/ttyUSB0 flash monitor   # UART0 dongle on GPIO43/44 (§2.1)
 ```
 
-The native USB-C port runs in host mode (radio side), so console + flashing
-go over a UART0 dongle; hold BOOT at reset for the ROM downloader. VBUS must
-be supplied to the radio — measure the 5V↔VBUS net first
+## Test
+
+Both suites are host-side and need no hardware:
+
+```sh
+make -C test/host run              # C: unit + e2e simulation (ASan/UBSan)
+python3 -m pytest test/tools -q    # Python: codec, radio_sim, pty rig
+```
+
+Both must exit 0. CI runs exactly these on every push.
+
+## Flash
+
+**The native USB-C port cannot be used for flashing** — it runs in host mode
+for the radio. Console and bootloader are on UART0, so wire the dongle to the
+board first. Note that TX goes to RX:
+
+| Dongle | XIAO ESP32-S3 |
+|---|---|
+| TX | GPIO44 (RX) |
+| RX | GPIO43 (TX) |
+| GND | GND |
+
+```sh
+idf.py -p /dev/tty.usbserial-XXXX flash monitor    # macOS
+idf.py -p /dev/ttyUSB0 flash monitor               # Linux
+```
+
+Find the port with `ls /dev/tty.usb*` or `ls /dev/ttyUSB*`. If flashing won't
+start, hold **BOOT**, tap **RESET**, release BOOT to enter the ROM downloader,
+then run the command again.
+
+Flash **before** the board goes into the enclosure — it mounts component-side
+down and the pads become awkward to reach (see [`../BUILD.md`](../BUILD.md)).
+
+VBUS must be supplied to the radio — measure the 5V↔VBUS net first
 ([`docs/references/hardware-xiao-esp32s3.md`](docs/references/hardware-xiao-esp32s3.md)).
 
 Debug build without BLE bonding (bench only — LED triple-blinks):
 `idf.py menuconfig` → CAT Bridge BLE → uncheck "Require LE encryption".
 
-## Tests
-
-```sh
-make -C test/host run                  # 57 C tests: unit + e2e simulation
-python -m pytest test/tools -q         # 32 tests: codec, radio_sim, pty rig
-```
+**Working:** `idf.py monitor` shows the bridge booting and it advertises as
+`CATBridge-XXXX` in any BLE scanner.
 
 Hardware-in-the-loop (docs §7.3/§7.4): run `radio_sim.py` on a CP2105/CP2102/
 CDC fixture attached to the ESP32's USB port, and drive BLE with

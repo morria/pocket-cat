@@ -1,6 +1,10 @@
 # PocketCAT — bill of materials
 
-Quantities are per unit.
+Quantities are per unit. Where to buy each item is in
+[Where to buy](#where-to-buy) below; the tools you need but don't consume
+are in [Tools](#tools--needed-to-build-not-part-of-the-unit).
+
+For the build itself, start at [`BUILD.md`](BUILD.md).
 
 ---
 
@@ -33,21 +37,18 @@ does not depend on the pitch being right — see the peg pair in the README
 — but if the knob binds at the ends of its throw, measure the travel and
 reduce `sw_travel`.
 
----|---|---|
-| Frame length, lug to lug | 19.05 mm (0.750″) | `sw_frame_l` |
-| Mounting hole ⌀ | 2.37 mm (3/32″) | `sw_hole_d` |
-| Mounting hole pitch | 14.82 mm | derived |
-| Actuator | 6.16 × 4.3 mm | `sw_act_l`, `sw_act_h` |
-| Body | 11.39 × 5.8 mm | — |
+### Substituting a different slide switch
 
-This part is not identified by manufacturer part number and may be hard
-to re-source. **SS12F15G5** is a catalogued alternative in the same
-family and is a reasonable substitute, but it is not a drop-in: its frame
-is 19.7–19.8 mm, its holes are ⌀2.2 mm, and its actuator is a 3 × 3 × 5
-mm knob with 3.0 mm travel. Switching to it requires updating
-`sw_frame_l`, `sw_hole_d`, `post_d`, `sw_act_l`, `sw_act_h` and
-`sw_travel`, then reprinting the base. Its hole pitch is not published —
-measure before regenerating.
+The base is dimensioned for the SS12F15G5 above. Any other SPDT slide
+switch is a reprint, not a drop-in: measure yours, update `sw_frame_l`,
+`sw_hole_d`, `post_d`, `sw_act_l`, `sw_act_h` and `sw_travel` in
+`enclosure/pocket_cat_case.scad`, and regenerate the base.
+
+An earlier prototype used an unbranded imperial switch — 19.05 mm
+(0.750″) frame, ⌀2.37 mm (3/32″) holes, 6.16 × 4.3 mm actuator — which is
+recorded here only so an old printed base can be identified. Do not buy
+it; it has no manufacturer part number and cannot be re-sourced
+reliably.
 
 ---
 
@@ -100,6 +101,46 @@ of 1.75 mm filament. No supports.
 |---|---|---|
 | 1 | Clip-on ferrite for the USB lead | Against boost switching noise on HF |
 | — | Copper foil tape | Line the lid over the boost, bond to battery negative |
+
+---
+
+## Tools — needed to build, not part of the unit
+
+| Qty | Item | Notes |
+|---|---|---|
+| 1 | **USB-to-UART dongle, 3.3 V logic** | CP2102, CH340 or FT232. **Required to flash.** The XIAO's own USB-C port is used for the radio, so console and bootloader live on UART0 |
+| 1 | Temperature-controlled soldering iron, fine tip | The BAT pads are small and lift under heat |
+| 1 | Multimeter | To verify cell polarity and the boost output before connecting either |
+| 1 | Side cutters, wire strippers, tweezers | 26 AWG |
+| 1 | 2.5 mm hex key | For the M3 cap screw |
+| 1 | Hot glue gun, hobby knife | Strain relief; dressing the printed switch pegs |
+
+Buy a dongle with **3.3 V logic levels**. A 5 V-only dongle will damage
+the board.
+
+---
+
+## Where to buy
+
+No links or prices here — they rot. Vendor and exact part name, so a
+search finds the right thing.
+
+| Item | Where | Search for | Check on arrival |
+|---|---|---|---|
+| XIAO ESP32S3 | Seeed Studio direct; also Mouser, DigiKey, Amazon | "XIAO ESP32S3" | The **plain** board, not "Sense". Confirm the **U.FL connector** is present and the FPC antenna is in the box |
+| 602535 LiPo cell | Battery and hobby suppliers, AliExpress, Amazon | "602535 3.7V 500mAh JST PH2.0" | **Measure thickness — must be ≤ 6 mm.** Verify polarity with a meter; cheap cells are not consistent about which JST pin is positive |
+| TPS61023 boost | Adafruit, as "MiniBoost 5V @ 1A — TPS61023"; clones on AliExpress | "TPS61023 boost module" | Board no larger than 17.8 × 11.3 mm. Leave the pin header unsoldered |
+| SS12F15G5 switch | AliExpress, LCSC, eBay | "SS12F15G5" | Usually sold in packs of 10+. 19.8 mm frame, ⌀2.2 mm holes |
+| M3 bolt + nut | Any fastener assortment | "M3 socket head cap screw 10 mm" | Hex socket, not Phillips — the counterbore is sized for a cap head |
+| 26 AWG wire | Amazon, AliExpress | "26 AWG silicone stranded wire" | Silicone insulation is far easier to dress in a tight case than PVC |
+| USB-UART dongle | Amazon, AliExpress, Adafruit | "CP2102 USB to TTL 3.3V" | Must support **3.3 V** logic |
+| Clip-on ferrite | Amazon, electronics suppliers | "clip-on ferrite core 5 mm" | Only if the boost raises your noise floor |
+
+The cell and the switch are the long-lead items if ordered from
+overseas. Order them first and print the case while you wait.
+
+**Cells cannot be shipped by air by most sellers**, so a domestic
+supplier is usually faster even when it costs more.
 
 ---
 

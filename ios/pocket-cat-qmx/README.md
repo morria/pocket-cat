@@ -32,10 +32,51 @@ respects: `PC` is a **get-only power meter in tenths of a watt**, `SM`
 reads dB, `MD` accepts only CW/DIGI/CW-R/FSK-R (sideband is `Q1`), and
 the two-letter commands are session-only while `MM` writes persist.
 
+## Prerequisites
+
+Xcode 15+, and `xcodegen` (`brew install xcodegen`). The package depends on
+the root Pocket Cat package (`CATBridgeKit`) by the relative path `../..`, so
+a plain checkout is all you need.
+
+## Test
+
 ```sh
-swift test                       # QMXKit + sim-driven integration
-cd App && xcodegen generate      # then open QMX.xcodeproj
+swift test          # QMXKit + sim-driven integration, no hardware
+```
+
+## Build and run
+
+```sh
+cd App && xcodegen generate      # creates QMX.xcodeproj
+open QMX.xcodeproj               # run the QMXApp scheme
 ```
 
 The connection sheet includes a **Simulated QMX** — the entire app runs
-against the built-in simulator with no hardware.
+against the built-in simulator with no hardware. Start there.
+
+**`App/project.yml` has a `DEVELOPMENT_TEAM` baked in — replace it with
+yours**, or device builds will fail to sign. Find your team ID with:
+
+```sh
+security find-certificate -c "Apple Development" -p |
+  openssl x509 -noout -subject | tr ',' '\n' | grep OU
+```
+
+## Install on a device
+
+```sh
+xcrun devicectl list devices          # find the device identifier
+xcodebuild build -project QMX.xcodeproj -scheme QMXApp \
+  -destination 'id=YOUR-DEVICE-ID' -derivedDataPath build \
+  -allowProvisioningUpdates
+xcrun devicectl device install app --device YOUR-DEVICE-ID \
+  build/Build/Products/Debug-iphoneos/QMXApp.app
+```
+
+The device must be unlocked with Developer Mode enabled.
+`-allowProvisioningUpdates` also registers the app's iCloud container the
+first time, which profile sync needs. If signing still fails on the iCloud
+entitlement, add the capability in Xcode (target → Signing & Capabilities →
+**+ Capability** → iCloud) — or strip it as the FT-891 app does with its
+`FT891App-NoCloud.entitlements`, at the cost of falling back to on-device
+profile storage.
