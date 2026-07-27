@@ -131,6 +131,9 @@ public enum TransportEvent: Sendable {
     case catData(Data)
     case ctrlFrame(Data)
     case statusData(Data)
+    /// One SPECTRUM notification fragment (docs/qmx-panadapter.md §6):
+    /// riding the transport seam keeps simulators able to fake it.
+    case spectrumData(Data)
     case mtuChanged(Int)
 }
 

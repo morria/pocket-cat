@@ -30,6 +30,7 @@ public actor QMXSimTransport: BridgeTransport {
 
     public func disconnect() async {
         connected = false
+        stopSpectrum()
     }
 
     public func writeCAT(_ data: Data) async throws {
@@ -84,10 +85,91 @@ public actor QMXSimTransport: BridgeTransport {
         case CtrlOp.setFailsafe.rawValue, CtrlOp.setLine.rawValue,
              CtrlOp.purge.rawValue, CtrlOp.usbReset.rawValue:
             ack(frame.op)
+        case CtrlOp.setSpectrum.rawValue where frame.payload.count == 4:
+            let p = [UInt8](frame.payload)
+            let bins = Int(p[1]) | (Int(p[2]) << 8)
+            let fps = Int(p[3])
+            if p[0] == 0 {
+                stopSpectrum()
+                ack(frame.op)
+            } else if ![64, 128, 256, 512].contains(bins)
+                        || !(1...30).contains(fps) {
+                emit(CtrlFrame(op: CtrlOp.nak.rawValue,
+                               payload: Data([frame.op,
+                                              CtrlErrCode.badArgument.rawValue])))
+            } else {
+                startSpectrum(bins: bins, fps: fps)
+                ack(frame.op)
+            }
         default:
             emit(CtrlFrame(op: CtrlOp.nak.rawValue,
                            payload: Data([frame.op,
                                           CtrlErrCode.unknownOp.rawValue])))
+        }
+    }
+
+    // MARK: - Synthetic spectrum stream (docs/qmx-panadapter.md M3)
+
+    private var spectrumTask: Task<Void, Never>?
+    private var spectrumSeq: UInt8 = 0
+
+    private func startSpectrum(bins: Int, fps: Int) {
+        stopSpectrum()
+        spectrumTask = Task { [weak self] in
+            var phase = 0.0
+            while !Task.isCancelled {
+                await self?.emitSpectrumFrame(bins: bins, phase: phase)
+                phase += 0.02
+                try? await Task.sleep(for: .milliseconds(1000 / fps))
+            }
+        }
+    }
+
+    private func stopSpectrum() {
+        spectrumTask?.cancel()
+        spectrumTask = nil
+    }
+
+    private func emitSpectrumFrame(bins: Int, phase: Double) {
+        guard connected else { return }
+        // A wandering carrier over a ~-105 dBFS noise floor.
+        let centre = Double(bins) * (0.5 + 0.3 * sin(phase))
+        var trace = [UInt8](repeating: 0, count: bins)
+        for i in 0..<bins {
+            let noise = 210.0 + Double.random(in: -6...6)
+            let d = Double(i) - centre
+            let peak = 60.0 + 8.0 * exp(-d * d / 4.0) * 18.75
+            trace[i] = UInt8(max(0, min(255, min(noise, 270.0 - peak))))
+        }
+        let seq = spectrumSeq
+        spectrumSeq &+= 1
+        // Fragment exactly like the firmware at mtu_payload 244.
+        let mtu = 244
+        var first = 0
+        var frag = 0
+        var frags: [[UInt8]] = []
+        while first < bins {
+            let cap = frag == 0 ? mtu - 12 : mtu - 5
+            let count = min(cap, bins - first)
+            var out: [UInt8] = [seq, UInt8(frag), 0]
+            if frag == 0 {
+                out.append(0)
+                out.append(contentsOf: [0, 0])
+                out.append(contentsOf: [UInt8(bins & 0xFF),
+                                        UInt8(bins >> 8)])
+                out.append(contentsOf: [0x80, 0xBB, 0, 0]) // 48000 LE
+            } else {
+                out.append(contentsOf: [UInt8(first & 0xFF),
+                                        UInt8(first >> 8)])
+            }
+            out.append(contentsOf: trace[first..<(first + count)])
+            frags.append(out)
+            first += count
+            frag += 1
+        }
+        for var f in frags {
+            f[2] = UInt8(frags.count)
+            continuation.yield(.spectrumData(Data(f)))
         }
     }
 
@@ -131,6 +213,7 @@ public struct QMXSimRig: Sendable {
     public var agcDB = 23
     public var swrHundredths = 121       // 1.21:1, empty reply while RX
     public var keyerSpeed = 20
+    public var iqMode = false // Q9
 
     /// A menu-tree node; grids carry one value per column.
     public struct SimNode: Sendable {
@@ -282,6 +365,7 @@ public struct QMXSimRig: Sendable {
         case "PC;": return "PC\(powerTenths);"
         case "KS;": return String(format: "KS%03d;", keyerSpeed)
         case "Q1;": return "Q1\(lsb ? 1 : 0);"
+        case "Q9;": return "Q9\(iqMode ? 1 : 0);"
         case "SP;": return "SP\(split ? 1 : 0);"
         case "RT;": return "RT\(ritOn ? 1 : 0);"
         case "RC;": ritOffset = 0; return nil
@@ -315,6 +399,10 @@ public struct QMXSimRig: Sendable {
         }
         if body.hasPrefix("Q1"), body.count == 3 {
             lsb = body.last == "1"
+            return nil
+        }
+        if body.hasPrefix("Q9"), body.count == 3 {
+            iqMode = body.last == "1"
             return nil
         }
         if body.hasPrefix("SP"), body.count == 3 {

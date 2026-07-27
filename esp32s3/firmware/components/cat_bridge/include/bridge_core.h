@@ -54,6 +54,9 @@ typedef struct {
     int (*ble_notify_cat)(void *ctx, const uint8_t *data, size_t len);
     int (*ble_notify_ctrl)(void *ctx, const uint8_t *data, size_t len);
     int (*ble_notify_status)(void *ctx, const uint8_t *data, size_t len);
+    /* NULL = no spectrum path on this build: SET_SPECTRUM answers
+     * NAK CTRL_ERR_UNSUPPORTED (docs/qmx-panadapter.md §3.2). */
+    int (*ble_notify_spectrum)(void *ctx, const uint8_t *data, size_t len);
     int (*set_baud)(void *ctx, uint32_t baud);
     int (*set_line)(void *ctx, bool dtr, bool rts);
     int (*usb_reset)(void *ctx);
@@ -93,6 +96,25 @@ typedef struct {
     /* BLE payload size = ATT_MTU − 3, clamped to COAL_BUF_SIZE. */
     _Atomic uint16_t mtu_payload;
 
+    /* Spectrum streaming (docs/qmx-panadapter.md). Config is poll-owned
+     * (written only via the CTRL queue); the subscribed flag is
+     * producer-set. seq is assigned at frame GENERATION so drops surface
+     * to the central as sequence gaps (§3.4). */
+    _Atomic bool ble_spectrum_subscribed;
+    /* Incremented on every BLE disconnect. The enable captures it; a
+     * mismatch in pump_spectrum kills the stream — airtight even when a
+     * disconnect/reconnect bounce lands between two polls. */
+    _Atomic uint32_t ble_conn_gen;
+    uint32_t spec_conn_gen;
+    bool spec_enabled;
+    uint16_t spec_bins;
+    uint8_t spec_fps;
+    uint8_t spec_seq;
+    uint32_t spec_last_frame_ms;
+    void *spec_synth; /* spec_synth_t*, injected by the target glue; the
+                       * synthetic source stands in until the UAC path
+                       * (plan M4) replaces it behind the same seam. */
+
     /* Poll-local bookkeeping. */
     uint32_t last_ovf_evt_ms;
     uint32_t reported_drops_u2b;
@@ -115,6 +137,7 @@ void bridge_on_ctrl_write(bridge_t *b, const uint8_t *data, size_t len);
 void bridge_on_ble_connected(bridge_t *b);
 void bridge_on_ble_disconnected(bridge_t *b);
 void bridge_on_ble_cat_subscribed(bridge_t *b, bool subscribed);
+void bridge_on_spectrum_subscribed(bridge_t *b, bool subscribed);
 void bridge_set_mtu(bridge_t *b, uint16_t att_mtu);
 
 /* --- USB lifecycle (called from the bridge/usb task context) -------------- */

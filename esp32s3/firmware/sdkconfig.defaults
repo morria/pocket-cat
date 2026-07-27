@@ -25,3 +25,8 @@ CONFIG_ESP_TASK_WDT_TIMEOUT_S=10
 CONFIG_ESPTOOLPY_FLASHSIZE_8MB=y
 CONFIG_PARTITION_TABLE_CUSTOM=y
 CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
+
+# Composite CDC + UAC descriptors (QMX with its sound card) exceed the
+# 256-byte default and would fail enumeration before radio_detect runs
+# (docs/qmx-panadapter.md §5.1).
+CONFIG_USB_HOST_CONTROL_TRANSFER_MAX_SIZE=1024

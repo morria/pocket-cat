@@ -10,6 +10,7 @@ public enum BridgeGATT {
     public static let catTXUUIDString = "8F1D0003-52A4-4E1E-B34B-9D40B71D6E01"
     public static let ctrlUUIDString = "8F1D0004-52A4-4E1E-B34B-9D40B71D6E01"
     public static let statusUUIDString = "8F1D0005-52A4-4E1E-B34B-9D40B71D6E01"
+    public static let spectrumUUIDString = "8F1D0006-52A4-4E1E-B34B-9D40B71D6E01"
 
     // Computed to avoid global storage of non-Sendable CBUUID instances.
     static var service: CBUUID { CBUUID(string: serviceUUIDString) }
@@ -17,7 +18,11 @@ public enum BridgeGATT {
     static var catTX: CBUUID { CBUUID(string: catTXUUIDString) }
     static var ctrl: CBUUID { CBUUID(string: ctrlUUIDString) }
     static var status: CBUUID { CBUUID(string: statusUUIDString) }
-    static var characteristics: [CBUUID] { [catRX, catTX, ctrl, status] }
+    static var spectrum: CBUUID { CBUUID(string: spectrumUUIDString) }
+    /// SPECTRUM is optional — pre-panadapter firmware simply lacks it.
+    static var characteristics: [CBUUID] {
+        [catRX, catTX, ctrl, status, spectrum]
+    }
 }
 
 /// A bridge seen while scanning. Wraps only value data — no CB types in the

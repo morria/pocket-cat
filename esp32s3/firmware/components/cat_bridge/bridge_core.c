@@ -2,6 +2,13 @@
 
 #include <string.h>
 
+#include "spectrum.h"
+
+/* The QMX's I/Q sample rate; carried in every spectrum frame so the app
+ * never hard-codes it (docs/qmx-panadapter.md §1.1). The synthetic source
+ * pretends the same rate the real UAC path (plan M4) will deliver. */
+#define BRIDGE_SPEC_SAMPLE_RATE_HZ 48000u
+
 /* ---------------------------------------------------------------------- */
 /* Init                                                                    */
 /* ---------------------------------------------------------------------- */
@@ -61,6 +68,12 @@ void bridge_on_ble_disconnected(bridge_t *b)
 {
     atomic_store(&b->ble_connected, false);
     atomic_store(&b->ble_cat_subscribed, false);
+    /* Spectrum subscription dies with the link, and the generation bump
+     * guarantees pump_spectrum kills the poll-owned enable even if the
+     * central reconnects before the next poll — a reconnecting central
+     * always starts quiet (docs/qmx-panadapter.md §3.2). */
+    atomic_store(&b->ble_spectrum_subscribed, false);
+    atomic_fetch_add(&b->ble_conn_gen, 1u);
     if (atomic_load(&b->failsafe_len) > 0) {
         atomic_store(&b->failsafe_fire, true); /* §5.5: emit before purge */
     }
@@ -69,6 +82,11 @@ void bridge_on_ble_disconnected(bridge_t *b)
 void bridge_on_ble_cat_subscribed(bridge_t *b, bool subscribed)
 {
     atomic_store(&b->ble_cat_subscribed, subscribed);
+}
+
+void bridge_on_spectrum_subscribed(bridge_t *b, bool subscribed)
+{
+    atomic_store(&b->ble_spectrum_subscribed, subscribed);
 }
 
 void bridge_set_mtu(bridge_t *b, uint16_t att_mtu)
@@ -253,6 +271,41 @@ static void exec_ctrl(bridge_t *b, const ctrl_frame_t *f)
                 memcpy(b->failsafe, f->payload, f->len);
             }
             atomic_store(&b->failsafe_len, f->len); /* 0 disarms */
+        }
+        break;
+
+    case CTRL_OP_SET_SPECTRUM:
+        /* docs/qmx-panadapter.md §3.2. The synthetic source needs no USB,
+         * so NO_USB is reserved for the real I/Q path (plan M4). */
+        if (b->ops.ble_notify_spectrum == NULL) {
+            err = CTRL_ERR_UNSUPPORTED;
+        } else if (f->len != 4) {
+            err = CTRL_ERR_BAD_LEN;
+        } else if (f->payload[0] > 1u) {
+            err = CTRL_ERR_BAD_ARG;
+        } else if (f->payload[0] == 0u) {
+            b->spec_enabled = false; /* remaining fields ignored */
+        } else {
+            uint16_t bins = (uint16_t)(f->payload[1] |
+                                       ((uint16_t)f->payload[2] << 8));
+            uint8_t fps = f->payload[3];
+            int nfrags = spec_frag_count(
+                bins, atomic_load(&b->mtu_payload));
+            if (!spec_valid_bins(bins) || !spec_valid_fps(fps)) {
+                err = CTRL_ERR_BAD_ARG;
+            } else if (nfrags < 0 || (uint32_t)nfrags * fps >
+                                         SPEC_NOTIFY_BUDGET_PER_S) {
+                /* Achievability at the LIVE MTU — a silent stall at tiny
+                 * MTUs must be a visible error instead (§3.2). */
+                err = CTRL_ERR_BAD_ARG;
+            } else {
+                /* enable while running = reconfigure, never BUSY. */
+                b->spec_enabled = true;
+                b->spec_bins = bins;
+                b->spec_fps = fps;
+                b->spec_last_frame_ms = 0;
+                b->spec_conn_gen = atomic_load(&b->ble_conn_gen);
+            }
         }
         break;
 
@@ -447,6 +500,60 @@ static bool pump_events(bridge_t *b, uint32_t now)
     return did;
 }
 
+/*
+ * Spectrum frame pump (docs/qmx-panadapter.md §3.4): runs LAST in
+ * bridge_poll so CAT and CTRL always win the poll's budget. Frames are
+ * generated at the configured fps, seq assigned at generation, and sent
+ * atomically — if any fragment's notify fails, the rest of the frame is
+ * abandoned (drop-newest; the central sees a seq gap). Never retried,
+ * never queued.
+ */
+static bool pump_spectrum(bridge_t *b, uint32_t now)
+{
+    /* Auto-stop lands here, in poll context where spec_enabled is owned:
+     * any disconnect since the enable (generation mismatch) or a USB
+     * error kills the stream permanently (until a new SET_SPECTRUM). */
+    if (b->spec_enabled &&
+        (atomic_load(&b->ble_conn_gen) != b->spec_conn_gen ||
+         atomic_load(&b->usb_state) == (uint8_t)CTRL_USB_ERROR)) {
+        b->spec_enabled = false;
+    }
+    if (!b->spec_enabled || b->spec_synth == NULL ||
+        !atomic_load(&b->ble_spectrum_subscribed)) {
+        return false;
+    }
+    uint32_t interval = 1000u / b->spec_fps;
+    if (b->spec_last_frame_ms != 0 &&
+        (uint32_t)(now - b->spec_last_frame_ms) < interval) {
+        return false;
+    }
+    b->spec_last_frame_ms = now ? now : 1;
+
+    static float iq[SPEC_MAX_BINS * 2u];
+    static uint8_t bins[SPEC_MAX_BINS];
+    static uint8_t frag[COAL_BUF_SIZE];
+
+    spec_synth_fill((spec_synth_t *)b->spec_synth, iq, b->spec_bins);
+    spec_compute(iq, b->spec_bins, bins);
+
+    uint8_t seq = b->spec_seq++;
+    uint16_t mtu = atomic_load(&b->mtu_payload);
+    int nfrags = spec_frag_count(b->spec_bins, mtu);
+    if (nfrags < 0) {
+        return false; /* MTU collapsed below minimum since enable */
+    }
+    for (int i = 0; i < nfrags; i++) {
+        int n = spec_frag_build(seq, (uint8_t)i, b->spec_bins,
+                                BRIDGE_SPEC_SAMPLE_RATE_HZ, bins, mtu,
+                                frag, sizeof frag);
+        if (n < 0 ||
+            b->ops.ble_notify_spectrum(b->ops.ctx, frag, (size_t)n) != 0) {
+            return true; /* abandon the frame — atomic, drop-newest */
+        }
+    }
+    return true;
+}
+
 bool bridge_poll(bridge_t *b)
 {
     uint32_t now = b->ops.now_ms(b->ops.ctx);
@@ -456,6 +563,7 @@ bool bridge_poll(bridge_t *b)
     did |= pump_ble_to_usb(b);
     did |= pump_usb_to_ble(b, now);
     did |= pump_events(b, now);
+    did |= pump_spectrum(b, now); /* last: CAT always wins (§3.4) */
     return did;
 }
 

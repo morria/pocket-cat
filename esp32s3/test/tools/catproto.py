@@ -19,6 +19,7 @@ CHAR_CAT_RX = "8f1d0002-52a4-4e1e-b34b-9d40b71d6e01"  # central→radio (write)
 CHAR_CAT_TX = "8f1d0003-52a4-4e1e-b34b-9d40b71d6e01"  # radio→central (notify)
 CHAR_CTRL = "8f1d0004-52a4-4e1e-b34b-9d40b71d6e01"    # control TLV (wr+notify)
 CHAR_STATUS = "8f1d0005-52a4-4e1e-b34b-9d40b71d6e01"  # status (read+notify)
+CHAR_SPECTRUM = "8f1d0006-52a4-4e1e-b34b-9d40b71d6e01"  # spectrum (notify)
 
 
 class Op(IntEnum):
@@ -28,6 +29,7 @@ class Op(IntEnum):
     SET_LINE = 0x04
     PURGE = 0x05
     SET_FAILSAFE = 0x06
+    SET_SPECTRUM = 0x07
     ACK = 0x80
     NAK = 0x81
     EVT_USB = 0x82
@@ -121,6 +123,11 @@ def purge(usb_to_ble: bool = False, ble_to_usb: bool = False) -> bytes:
     return encode(Op.PURGE, bytes([mask]))
 
 
+def set_spectrum(enable: bool, bins: int = 256, fps: int = 15) -> bytes:
+    return encode(Op.SET_SPECTRUM,
+                  struct.pack("<BHB", 1 if enable else 0, bins, fps))
+
+
 def set_failsafe(data: bytes) -> bytes:
     if len(data) > FAILSAFE_MAX:
         raise ValueError(f"failsafe limited to {FAILSAFE_MAX} bytes")
@@ -153,3 +160,84 @@ class Status:
         (min_free_heap,) = struct.unpack_from("<I", data, 18)
         return cls(UsbState(usb_state), RadioId(radio_id), baud, d_u2b,
                    d_b2u, fw_major, fw_minor, reset_reason, min_free_heap)
+
+
+# --- Spectrum frames (docs/qmx-panadapter.md 3.3) ---------------------------
+
+@dataclass
+class SpectrumFrame:
+    sequence: int
+    sample_rate_hz: int
+    bins: bytes  # dBFS at 0.5 dB/LSB, 0 = full scale; bin len(bins)//2 = DC
+
+
+class SpectrumReassembler:
+    """Mirror of the Swift reassembler: incomplete/out-of-order frames are
+    dropped, a new frag 0 always resets, drops surface as seq gaps."""
+
+    def __init__(self) -> None:
+        self.frames_dropped = 0
+        self.sequence_gaps = 0
+        self._pending = False
+        self._last: int | None = None
+        self._seq = 0
+        self._nfrags = 0
+        self._next = 0
+        self._total = 0
+        self._rate = 0
+        self._bins = bytearray()
+        self._filled = 0
+
+    def _drop(self) -> None:
+        if self._pending:
+            self._pending = False
+            self.frames_dropped += 1
+
+    def ingest(self, data: bytes) -> SpectrumFrame | None:
+        if len(data) < 3:
+            return None
+        seq, frag, nfrags = data[0], data[1], data[2]
+        if frag == 0:
+            self._drop()
+            if len(data) < 12 or nfrags < 1 or data[3] != 0:
+                return None  # short or unknown flags
+            first, total = struct.unpack_from("<HH", data, 4)
+            (rate,) = struct.unpack_from("<I", data, 8)
+            if first != 0 or not (1 <= total <= 4096):
+                return None
+            payload = data[12:]
+            if len(payload) > total:
+                return None
+            self._seq, self._nfrags, self._next = seq, nfrags, 1
+            self._total, self._rate = total, rate
+            self._bins = bytearray(total)
+            self._bins[: len(payload)] = payload
+            self._filled = len(payload)
+            self._pending = True
+        else:
+            if (not self._pending or seq != self._seq
+                    or frag != self._next or nfrags != self._nfrags
+                    or len(data) < 5):
+                self._drop()
+                return None
+            (first,) = struct.unpack_from("<H", data, 3)
+            payload = data[5:]
+            if first != self._filled or first + len(payload) > self._total:
+                self._drop()
+                return None
+            self._bins[first:first + len(payload)] = payload
+            self._filled += len(payload)
+            self._next += 1
+
+        if not self._pending or self._next != self._nfrags:
+            return None
+        if self._filled != self._total:
+            self._drop()
+            return None
+        self._pending = False
+        if self._last is not None:
+            expected = (self._last + 1) & 0xFF
+            if self._seq != expected:
+                self.sequence_gaps += (self._seq - expected) & 0xFF
+        self._last = self._seq
+        return SpectrumFrame(self._seq, self._rate, bytes(self._bins))

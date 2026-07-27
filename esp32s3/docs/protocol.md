@@ -19,6 +19,7 @@ Base UUID: `8f1dXXXX-52a4-4e1e-b34b-9d40b71d6e01`.
 | `0003` | `CAT_TX` | Notify | radio → central | raw CAT bytes, chunked ≤ ATT_MTU−3 |
 | `0004` | `CTRL` | Write, Notify | both | TLV frames (§2) |
 | `0005` | `STATUS` | Read, Notify | device → central | packed status (§3) |
+| `0006` | `SPECTRUM` | Notify | device → central | fragmented spectrum frames (§6); absent on builds without the DSP path |
 
 - Advertising: the service UUID is in the ADV payload (iOS background
   rediscovery); the device name `CATBridge-XXXX` is in the scan response.
@@ -46,6 +47,7 @@ Base UUID: `8f1dXXXX-52a4-4e1e-b34b-9d40b71d6e01`.
 | `0x04` | `SET_LINE` | u8 bitmap: bit0 DTR, bit1 RTS | `BAD_LEN`, `NO_USB`, `BUSY` |
 | `0x05` | `PURGE` | u8 mask: bit0 usb→ble, bit1 ble→usb | `BAD_LEN`, `BAD_ARG` (zero or unknown bits) |
 | `0x06` | `SET_FAILSAFE` | 0–32 raw bytes (empty = disarm) | `BAD_LEN` (> 32) |
+| `0x07` | `SET_SPECTRUM` | `[enable:u8][bins:u16][fps:u8]` | `BAD_LEN`, `BAD_ARG` (bins ∉ {64,128,256,512}, fps ∉ 1–30, or unachievable at the live MTU), `UNSUPPORTED` (no DSP path), `NO_USB` (reserved for the real I/Q source) |
 
 Reply rule: **every command yields exactly one reply frame.**
 
@@ -110,3 +112,31 @@ See docs/implementation.md §6: dialect selection by `radio_id`, `ID;` baud
 probing, poll cadence, `EVT_OVERFLOW` recovery (drop partial buffer, re-poll),
 Write-No-Response with `canSendWriteWithoutResponse` throttling on iOS, and
 failsafe arming around PTT.
+
+## 6. SPECTRUM frames (panadapter; docs/qmx-panadapter.md is the design)
+
+Little-endian. Fragment 0 carries the header; continuations only place
+their bins:
+
+```
+frag 0 : [seq:u8][frag:u8=0][nfrags:u8][flags:u8][first_bin:u16]
+         [bins_total:u16][sample_rate_hz:u32][bin bytes…]   header 12 B
+frag n : [seq:u8][frag:u8][nfrags:u8][first_bin:u16][bin bytes…]
+                                                            header  5 B
+```
+
+- `flags` = 0 in v1; centrals drop frames with unknown flags.
+- Bins are dBFS at 0.5 dB/LSB (`0` = full scale). Bin 0 is the lowest
+  frequency; bin `bins_total/2` is DC (the tuned frequency). Span is
+  `sample_rate_hz`. Frames carry **no frequency** — axis labelling is the
+  central's job from the VFO it already tracks.
+- `seq` is assigned at frame *generation* and wraps at 256; a gap in
+  received sequence numbers is the drop report — there is no CTRL event.
+- Frames are sent atomically (a failed fragment abandons the rest) and are
+  **never retried or queued behind CAT**: the stream inverts §4's
+  no-drop guarantee by design, so a spectrum backlog can never delay CAT
+  or trip the failsafe. `SET_SPECTRUM enable=1` while streaming
+  reconfigures in place. Streaming auto-stops on BLE disconnect and USB
+  detach; a reconnecting central always starts quiet.
+- Golden fragment vectors live in `test/vectors/ctrlproto.json`
+  (`spectrum_frames`), byte-shared with the Swift tests.

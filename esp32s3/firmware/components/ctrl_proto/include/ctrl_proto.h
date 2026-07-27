@@ -24,6 +24,12 @@ extern "C" {
 #define CTRL_OP_SET_LINE     0x04u /* payload: u8 bitmap (bit0 DTR, bit1 RTS)*/
 #define CTRL_OP_PURGE        0x05u /* payload: u8 mask (bit0 usb→ble, bit1 ble→usb) */
 #define CTRL_OP_SET_FAILSAFE 0x06u /* payload: 0–32 raw bytes; empty = disarm */
+#define CTRL_OP_SET_SPECTRUM 0x07u /* payload: [enable u8][bins u16 LE][fps u8]
+                                    * enable=0 stops (other fields ignored);
+                                    * enable=1 while running reconfigures.
+                                    * Firmware without the DSP path answers
+                                    * NAK CTRL_ERR_UNSUPPORTED
+                                    * (docs/qmx-panadapter.md §3.2). */
 
 /* --- Opcodes (peripheral → central) ------------------------------------- */
 #define CTRL_OP_ACK          0x80u /* payload: [orig_opcode, err=0]          */

@@ -17,11 +17,13 @@
 #include "ble_link.h"
 #include "bridge_core.h"
 #include "led.h"
+#include "spectrum.h"
 #include "usb_link.h"
 
 static const char *TAG = "app";
 
 static bridge_t s_bridge;
+static spec_synth_t s_synth;
 static uint8_t s_rb_u2b[BRIDGE_RB_USB_TO_BLE_CAP];
 static uint8_t s_rb_b2u[BRIDGE_RB_BLE_TO_USB_CAP];
 
@@ -65,6 +67,7 @@ void app_main(void)
         .ble_notify_cat = ble_link_op_notify_cat,
         .ble_notify_ctrl = ble_link_op_notify_ctrl,
         .ble_notify_status = ble_link_op_notify_status,
+        .ble_notify_spectrum = ble_link_op_notify_spectrum,
         .set_baud = usb_link_op_set_baud,
         .set_line = usb_link_op_set_line,
         .usb_reset = usb_link_op_reset,
@@ -74,6 +77,10 @@ void app_main(void)
     bridge_init(&s_bridge, &ops, s_rb_u2b, sizeof s_rb_u2b, s_rb_b2u,
                 sizeof s_rb_b2u);
     s_bridge.reset_reason = (uint8_t)esp_reset_reason();
+    /* Synthetic I/Q source (panadapter plan M2); the UAC host path (M4)
+     * replaces this behind the same seam. */
+    spec_synth_init(&s_synth, 0x51CA);
+    s_bridge.spec_synth = &s_synth;
     s_bridge.min_free_heap = esp_get_minimum_free_heap_size();
 
     ESP_ERROR_CHECK(ble_link_start(&s_bridge));

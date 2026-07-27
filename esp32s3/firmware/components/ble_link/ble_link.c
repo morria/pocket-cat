@@ -34,6 +34,7 @@ static const ble_uuid128_t UUID_CAT_RX = BRIDGE_UUID128(0x0002);
 static const ble_uuid128_t UUID_CAT_TX = BRIDGE_UUID128(0x0003);
 static const ble_uuid128_t UUID_CTRL = BRIDGE_UUID128(0x0004);
 static const ble_uuid128_t UUID_STATUS = BRIDGE_UUID128(0x0005);
+static const ble_uuid128_t UUID_SPECTRUM = BRIDGE_UUID128(0x0006);
 
 typedef struct {
     bridge_t *bridge;
@@ -41,6 +42,7 @@ typedef struct {
     uint16_t h_cat_tx;
     uint16_t h_ctrl;
     uint16_t h_status;
+    uint16_t h_spectrum;
     volatile bool ctrl_subscribed;
     volatile bool status_subscribed;
     uint8_t own_addr_type;
@@ -150,6 +152,13 @@ static const struct ble_gatt_svc_def gatt_svcs[] = {
                     .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_NOTIFY,
                     .val_handle = &s_ble.h_status,
                 },
+                {
+                    /* Panadapter frames (docs/qmx-panadapter.md §3.1). */
+                    .uuid = &UUID_SPECTRUM.u,
+                    .access_cb = chr_access_cb,
+                    .flags = BLE_GATT_CHR_F_NOTIFY,
+                    .val_handle = &s_ble.h_spectrum,
+                },
                 { 0 },
             },
     },
@@ -193,6 +202,7 @@ static int gap_event_cb(struct ble_gap_event *event, void *arg)
         s_ble.conn_handle = BLE_HS_CONN_HANDLE_NONE;
         s_ble.ctrl_subscribed = false;
         s_ble.status_subscribed = false;
+        bridge_on_spectrum_subscribed(s_ble.bridge, false);
         bridge_on_ble_disconnected(s_ble.bridge); /* arms failsafe (§5.5) */
         advertise_start(); /* resume: this is the single-central policy */
         break;
@@ -211,6 +221,8 @@ static int gap_event_cb(struct ble_gap_event *event, void *arg)
             s_ble.ctrl_subscribed = on;
         } else if (h == s_ble.h_status) {
             s_ble.status_subscribed = on;
+        } else if (h == s_ble.h_spectrum) {
+            bridge_on_spectrum_subscribed(s_ble.bridge, on);
         }
         break;
     }
@@ -344,6 +356,15 @@ int ble_link_op_notify_status(void *ctx, const uint8_t *data, size_t len)
         return -1;
     }
     return notify(s_ble.h_status, data, len);
+}
+
+int ble_link_op_notify_spectrum(void *ctx, const uint8_t *data, size_t len)
+{
+    (void)ctx;
+    /* Subscription is checked by the bridge (its atomic gates generation);
+     * a failed notify here just drops the frame — never retried
+     * (docs/qmx-panadapter.md §3.4). */
+    return notify(s_ble.h_spectrum, data, len);
 }
 
 /* ---------------------------------------------------------------------- */

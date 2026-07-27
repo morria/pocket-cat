@@ -201,6 +201,46 @@ async def cmd_echo(args) -> int:
         return 0 if lost == 0 and intact else 1
 
 
+async def cmd_spectrum(args) -> int:
+    """Panadapter bench view (docs/qmx-panadapter.md M2): enable the
+    stream and print one ASCII trace line per frame."""
+    async with BridgeClient(args.address) as bc:
+        frames: list[cp.SpectrumFrame] = []
+        reasm = cp.SpectrumReassembler()
+
+        def on_spectrum(_h, data: bytearray) -> None:
+            frame = reasm.ingest(bytes(data))
+            if frame:
+                frames.append(frame)
+
+        await bc.client.start_notify(cp.CHAR_SPECTRUM, on_spectrum)
+        reply = await bc.ctrl_command(
+            cp.set_spectrum(True, args.bins, args.fps))
+        if reply.op != cp.Op.ACK:
+            print(f"NAK err={cp.Err(reply.payload[1]).name} "
+                  "(old firmware or bad args?)")
+            return 1
+        deadline = time.monotonic() + args.seconds
+        shown = 0
+        glyphs = " .:-=+*#%@"
+        try:
+            while time.monotonic() < deadline:
+                await asyncio.sleep(0.05)
+                while shown < len(frames):
+                    frame = frames[shown]
+                    shown += 1
+                    step = max(1, len(frame.bins) // 64)
+                    row = "".join(
+                        glyphs[min(9, (255 - frame.bins[i]) // 26)]
+                        for i in range(0, len(frame.bins), step))
+                    print(f"{frame.sequence:3d} |{row}|")
+        finally:
+            await bc.ctrl_command(cp.set_spectrum(False))
+        lost = reasm.sequence_gaps + reasm.frames_dropped
+        print(f"frames={shown} lost={lost}")
+        return 0 if shown else 1
+
+
 async def cmd_storm(args) -> int:
     """Connect/disconnect cycles; §7.3 requires advertising resume ≤ 2 s."""
     addr = args.address
@@ -230,6 +270,10 @@ def main() -> int:
     p = sub.add_parser("echo")
     p.add_argument("--bytes", type=int, default=100_000)
     p.add_argument("--chunk", type=int, default=180)
+    p = sub.add_parser("spectrum")
+    p.add_argument("--bins", type=int, default=256)
+    p.add_argument("--fps", type=int, default=15)
+    p.add_argument("--seconds", type=float, default=5.0)
     p = sub.add_parser("storm")
     p.add_argument("--cycles", type=int, default=50)
     args = ap.parse_args()

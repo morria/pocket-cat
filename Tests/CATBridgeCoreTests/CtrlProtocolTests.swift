@@ -36,9 +36,19 @@ struct VectorFile: Decodable {
         let wire_hex: String
         let reason: String
     }
+    struct SpectrumVector: Decodable {
+        let name: String
+        let mtu_payload: Int
+        let sequence: UInt8
+        let bins_total: Int
+        let sample_rate_hz: UInt32
+        let bins_hex: String
+        let fragments_hex: [String]
+    }
     let frames: [FrameVector]
     let status: [StatusVector]
     let invalid_status: [InvalidStatusVector]
+    let spectrum_frames: [SpectrumVector]
 }
 
 func loadVectors() throws -> VectorFile {
@@ -214,5 +224,43 @@ let frameEncoders: [String: @Sendable () throws -> CtrlFrame] = [
     @Test func unknownRadioIDPreserved() {
         #expect(BridgeRadioID(byte: 42) == .unknown(42))
         #expect(BridgeRadioID(byte: 42).usesRealBaud == false)
+    }
+}
+
+
+// MARK: - Spectrum frame vectors (docs/qmx-panadapter.md §3.3)
+
+@Suite struct SpectrumVectorTests {
+    @Test func vectorsReassembleByteExact() throws {
+        for vector in try loadVectors().spectrum_frames {
+            var reassembler = SpectrumReassembler()
+            var frame: SpectrumFrame?
+            for hex in vector.fragments_hex {
+                frame = reassembler.ingest(try #require(Data(hex: hex)))
+            }
+            let result = try #require(frame, Comment(rawValue: vector.name))
+            #expect(result.sequence == vector.sequence)
+            #expect(result.sampleRateHz == vector.sample_rate_hz)
+            #expect(Data(result.bins)
+                    == (try #require(Data(hex: vector.bins_hex))))
+            #expect(result.bins.count == vector.bins_total)
+            #expect(reassembler.framesDropped == 0)
+        }
+    }
+
+    @Test func setSpectrumEncoderMatchesVectors() throws {
+        let vectors = try loadVectors()
+        let on = try #require(vectors.frames.first {
+            $0.name == "set_spectrum_on_256_15"
+        })
+        #expect(CtrlCommand.setSpectrum(enable: true, bins: 256,
+                                        fps: 15).encoded
+                == Data(hex: on.wire_hex))
+        let off = try #require(vectors.frames.first {
+            $0.name == "set_spectrum_off"
+        })
+        #expect(CtrlCommand.setSpectrum(enable: false, bins: 0,
+                                        fps: 1).encoded
+                == Data(hex: off.wire_hex))
     }
 }

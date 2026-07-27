@@ -26,6 +26,7 @@ esp_err_t ble_link_start(bridge_t *bridge);
 int ble_link_op_notify_cat(void *ctx, const uint8_t *data, size_t len);
 int ble_link_op_notify_ctrl(void *ctx, const uint8_t *data, size_t len);
 int ble_link_op_notify_status(void *ctx, const uint8_t *data, size_t len);
+int ble_link_op_notify_spectrum(void *ctx, const uint8_t *data, size_t len);
 
 #ifdef __cplusplus
 }

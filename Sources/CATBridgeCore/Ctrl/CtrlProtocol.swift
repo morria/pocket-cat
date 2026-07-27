@@ -13,6 +13,7 @@ public enum CtrlOp: UInt8, Sendable, CaseIterable {
     case setLine = 0x04
     case purge = 0x05
     case setFailsafe = 0x06
+    case setSpectrum = 0x07
     case ack = 0x80
     case nak = 0x81
     case evtUSB = 0x82
@@ -93,6 +94,18 @@ public enum CtrlCommand {
     public static func setLine(dtr: Bool, rts: Bool) -> CtrlFrame {
         let bitmap: UInt8 = (dtr ? 0x01 : 0x00) | (rts ? 0x02 : 0x00)
         return CtrlFrame(op: CtrlOp.setLine.rawValue, payload: Data([bitmap]))
+    }
+
+    /// Panadapter streaming (docs/qmx-panadapter.md §3.2). Old firmware
+    /// answers NAK `unknownOp`; DSP-less builds answer NAK `unsupported` —
+    /// the capability probe treats both as "absent".
+    public static func setSpectrum(enable: Bool, bins: UInt16,
+                                   fps: UInt8) -> CtrlFrame {
+        CtrlFrame(op: CtrlOp.setSpectrum.rawValue, payload: Data([
+            enable ? 1 : 0,
+            UInt8(bins & 0xFF), UInt8(bins >> 8),
+            fps,
+        ]))
     }
 
     public static func purge(usbToBLE: Bool, bleToUSB: Bool) -> CtrlFrame {

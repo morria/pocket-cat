@@ -171,6 +171,21 @@ extension TransceiverSession {
         return mode
     }
 
+    // MARK: - I/Q mode (Q9 — the panadapter's sample source)
+
+    /// True when the QMX's USB sound card streams raw I/Q instead of
+    /// demodulated audio. Session-only on the radio: dies with every
+    /// power cycle, so re-assert on USB re-attach and verify by read-back
+    /// (docs/qmx-panadapter.md §5.3).
+    public func readIQMode() async throws -> Bool {
+        try await qmxRead("Q9;", prefix: "Q9") == "1"
+    }
+
+    public func setIQMode(_ enabled: Bool) async throws {
+        _ = try await rawCommand("Q9\(enabled ? 1 : 0);",
+                                 expectsReply: false)
+    }
+
     // MARK: - Odds and ends
 
     public func readFirmwareVersion() async throws -> String {

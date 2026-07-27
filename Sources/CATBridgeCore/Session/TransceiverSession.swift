@@ -75,6 +75,11 @@ public actor TransceiverSession {
         snapshotContinuations.removeAll()
         for continuation in eventContinuations.values { continuation.finish() }
         eventContinuations.removeAll()
+        for continuation in spectrumContinuations.values {
+            continuation.finish()
+        }
+        spectrumContinuations.removeAll()
+        spectrumReassembler.reset()
     }
 
     private func drainWaiters() {
@@ -269,6 +274,70 @@ public actor TransceiverSession {
                                                   value: value))
     }
 
+    // MARK: - Spectrum (panadapter; docs/qmx-panadapter.md)
+
+    /// Ask the bridge whether it has the spectrum DSP path. Old firmware
+    /// NAKs `unknownOp`; DSP-less builds NAK `unsupported` — both mean no.
+    public func probeSpectrumSupport() async throws -> Bool {
+        // Probe with a disable: harmless when supported, and the reply
+        // arrives without starting a stream.
+        let reply = try await performCtrl(
+            CtrlCommand.setSpectrum(enable: false, bins: 256, fps: 15))
+        switch reply {
+        case .ack:
+            return true
+        case .nak:
+            return false
+        default:
+            throw CATBridgeError.malformedResponse("SET_SPECTRUM probe")
+        }
+    }
+
+    /// Start (or reconfigure) spectrum streaming. bins ∈ {64,128,256,512},
+    /// fps 1–30; the bridge validates achievability at the live MTU.
+    public func setSpectrum(bins: UInt16, fps: UInt8) async throws {
+        let reply = try await performCtrl(
+            CtrlCommand.setSpectrum(enable: true, bins: bins, fps: fps))
+        guard case .ack = reply else {
+            if case let .nak(op, code) = reply {
+                throw CATBridgeError.bridgeRejected(op: op, code: code)
+            }
+            throw CATBridgeError.malformedResponse("SET_SPECTRUM")
+        }
+        spectrumReassembler.reset()
+    }
+
+    /// Stop streaming. Best-effort — the bridge also auto-stops on
+    /// disconnect, so a failed stop cannot leak a stream.
+    public func stopSpectrum() async {
+        _ = try? await performCtrl(
+            CtrlCommand.setSpectrum(enable: false, bins: 0, fps: 1))
+    }
+
+    /// Reassembled spectrum frames. Same consumer contract as
+    /// `snapshots()`: each call is an independent stream.
+    public func spectrumFrames() -> AsyncStream<SpectrumFrame> {
+        AsyncStream { continuation in
+            let id = UUID()
+            continuation.onTermination = { [weak self] _ in
+                Task { await self?.removeSpectrumConsumer(id) }
+            }
+            self.spectrumContinuations[id] = continuation
+        }
+    }
+
+    private func removeSpectrumConsumer(_ id: UUID) {
+        spectrumContinuations.removeValue(forKey: id)
+    }
+
+    /// Frames the firmware dropped (visible as sequence gaps) plus frames
+    /// this side discarded as incomplete — diagnostic, feeds the UI's
+    /// "link is saturated" hint.
+    public var spectrumFramesLost: Int {
+        spectrumReassembler.sequenceGaps
+            + spectrumReassembler.framesDropped
+    }
+
     /// Raw CAT escape hatch. PTT-on wires are refused while the failsafe is
     /// unarmed; retries are opt-in because raw commands may not be idempotent.
     public func rawCommand(_ wire: String, expectsReply: Bool,
@@ -311,6 +380,9 @@ public actor TransceiverSession {
         [UUID: AsyncStream<TransceiverSnapshot>.Continuation] = [:]
     private var eventContinuations:
         [UUID: AsyncStream<SessionEvent>.Continuation] = [:]
+    private var spectrumContinuations:
+        [UUID: AsyncStream<SpectrumFrame>.Continuation] = [:]
+    private var spectrumReassembler = SpectrumReassembler()
     /// Monotonic publish counter: `Task { @MainActor }` hops are not
     /// ordered, so the observable state drops out-of-order applies.
     private var publishSequence: UInt64 = 0
@@ -902,6 +974,12 @@ public actor TransceiverSession {
                     model.bridge = BridgeHealth(status: status)
                     publish()
                 }
+            case let .spectrumData(data):
+                if let frame = spectrumReassembler.ingest(data) {
+                    for continuation in spectrumContinuations.values {
+                        continuation.yield(frame)
+                    }
+                }
             }
         }
     }
@@ -915,6 +993,7 @@ public actor TransceiverSession {
         failsafeArmed = false
         demux.reset()
         ctrlRxBuffer.removeAll()
+        spectrumReassembler.reset() // bridge auto-stopped; start clean
         // The firmware failsafe unkeys the radio on link loss (§7.4).
         model.isTransmitting = false
         setPhase(.reconnecting(attempt: 1))

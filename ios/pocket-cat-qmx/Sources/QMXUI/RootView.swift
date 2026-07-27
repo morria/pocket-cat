@@ -13,6 +13,8 @@ public struct RootView: View {
         TabView {
             NavigationStack { OperateView() }
                 .tabItem { Label("Operate", systemImage: "dial.medium") }
+            NavigationStack { SpectrumView() }
+                .tabItem { Label("Spectrum", systemImage: "waveform") }
             NavigationStack { MenuBrowserView() }
                 .tabItem {
                     Label("Menu", systemImage: "slider.horizontal.3")

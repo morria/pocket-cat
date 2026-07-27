@@ -178,7 +178,10 @@ public final class RigController {
             notify("Radio USB disconnected from the bridge.")
         case let .usbRadioAttached(id):
             notify("Radio attached (\(String(describing: id))).")
-            Task { await refreshSecondaryState() }
+            Task {
+                await refreshSecondaryState()
+                await reassertPanadapterAfterAttach()
+            }
         case let .usbDeviceUnsupported(id):
             notify("Unsupported USB device (\(String(describing: id))).")
         case let .bridgeOverflow(direction, dropped):
@@ -306,6 +309,77 @@ public final class RigController {
         swr = nil
         do { try await session.receive() }
         catch { notify(friendlyMessage(for: error)) }
+    }
+
+    // MARK: - Panadapter (docs/qmx-panadapter.md §5.3, §6)
+
+    /// nil until probed; false on pre-panadapter firmware.
+    public private(set) var spectrumSupported: Bool?
+    public private(set) var panadapterActive = false
+    public private(set) var latestSpectrum: SpectrumFrame?
+    public private(set) var spectrumFramesLost = 0
+    private var spectrumTask: Task<Void, Never>?
+
+    public func probePanadapter() async {
+        guard let session else { return }
+        spectrumSupported = (try? await session.probeSpectrumSupport())
+            ?? false
+    }
+
+    /// Turn the panadapter on: switch the radio's sound card to I/Q
+    /// (Q9 — replacing its demodulated audio), verify it took, then start
+    /// the bridge's spectrum stream and consume frames.
+    public func startPanadapter(bins: UInt16 = 256,
+                                fps: UInt8 = 15) async {
+        guard let session, !panadapterActive else { return }
+        do {
+            try await session.setIQMode(true)
+            guard try await session.readIQMode() else {
+                notify("Radio refused I/Q mode (Q9).")
+                return
+            }
+            try await session.setSpectrum(bins: bins, fps: fps)
+        } catch {
+            notify(friendlyMessage(for: error))
+            return
+        }
+        panadapterActive = true
+        spectrumTask?.cancel()
+        spectrumTask = Task { [weak self] in
+            guard let session = self?.session else { return }
+            for await frame in await session.spectrumFrames() {
+                guard let self else { return }
+                self.latestSpectrum = frame
+                self.spectrumFramesLost = await session.spectrumFramesLost
+            }
+        }
+    }
+
+    /// Stop streaming and hand the sound card back to demodulated audio.
+    public func stopPanadapter() async {
+        guard panadapterActive else { return }
+        panadapterActive = false
+        spectrumTask?.cancel()
+        spectrumTask = nil
+        latestSpectrum = nil
+        if let session {
+            await session.stopSpectrum()
+            try? await session.setIQMode(false)
+        }
+    }
+
+    /// Q9 is session-only on the radio: a power cycle (USB re-attach)
+    /// silently reverts it, so re-assert and restart the stream.
+    private func reassertPanadapterAfterAttach() async {
+        guard panadapterActive, let session else { return }
+        do {
+            try await session.setIQMode(true)
+            guard try await session.readIQMode() else { return }
+            try await session.setSpectrum(bins: 256, fps: 15)
+        } catch {
+            panadapterActive = false
+            notify("Panadapter stopped: \(friendlyMessage(for: error))")
+        }
     }
 
     // MARK: - TX meter polling (SWR + power are only live while keyed)

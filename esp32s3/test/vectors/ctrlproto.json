@@ -103,6 +103,18 @@
       "op": 131,
       "payload_hex": "00b0a00201",
       "wire_hex": "830500b0a00201"
+    },
+    {
+      "name": "set_spectrum_on_256_15",
+      "op": 7,
+      "payload_hex": "0100010f",
+      "wire_hex": "07040100010f"
+    },
+    {
+      "name": "set_spectrum_off",
+      "op": 7,
+      "payload_hex": "00000001",
+      "wire_hex": "070400000001"
     }
   ],
   "status": [
@@ -162,6 +174,32 @@
       "name": "bad_version",
       "wire_hex": "63000000000000000000000000000000000000000000",
       "reason": "version"
+    }
+  ],
+  "spectrum_frames": [
+    {
+      "name": "sweep_64bins_mtu32",
+      "mtu_payload": 32,
+      "sequence": 7,
+      "bins_total": 64,
+      "sample_rate_hz": 48000,
+      "bins_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f",
+      "fragments_hex": [
+        "070003000000400080bb0000000102030405060708090a0b0c0d0e0f10111213",
+        "07010314001415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e",
+        "0702032f002f303132333435363738393a3b3c3d3e3f"
+      ]
+    },
+    {
+      "name": "single_frag_64bins_mtu244",
+      "mtu_payload": 244,
+      "sequence": 200,
+      "bins_total": 64,
+      "sample_rate_hz": 48000,
+      "bins_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f",
+      "fragments_hex": [
+        "c80001000000400080bb0000000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f"
+      ]
     }
   ]
 }

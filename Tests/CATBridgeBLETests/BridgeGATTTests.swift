@@ -27,7 +27,9 @@ import Testing
     @Test func cbuuidsParse() {
         #expect(BridgeGATT.service.uuidString
                 == BridgeGATT.serviceUUIDString)
-        #expect(BridgeGATT.characteristics.count == 4)
+        #expect(BridgeGATT.characteristics.count == 5) // incl. SPECTRUM
+        #expect(BridgeGATT.spectrum.uuidString
+                == BridgeGATT.spectrumUUIDString)
     }
 
     @Test func discoveredBridgeIsValueData() {

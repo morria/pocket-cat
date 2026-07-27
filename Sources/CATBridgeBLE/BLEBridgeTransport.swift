@@ -26,6 +26,7 @@ public final class BLEBridgeTransport: NSObject, BridgeTransport,
     private var catTX: CBCharacteristic?
     private var ctrl: CBCharacteristic?
     private var status: CBCharacteristic?
+    private var spectrum: CBCharacteristic?
     private var connectContinuation: CheckedContinuation<Void, Error>?
     private var pendingNotifySubscriptions = 0
     private var writeReadyWaiters: [CheckedContinuation<Void, Never>] = []
@@ -210,6 +211,7 @@ extension BLEBridgeTransport: CBPeripheralDelegate {
             case BridgeGATT.catTX: catTX = characteristic
             case BridgeGATT.ctrl: ctrl = characteristic
             case BridgeGATT.status: status = characteristic
+            case BridgeGATT.spectrum: spectrum = characteristic
             default: break
             }
         }
@@ -220,10 +222,14 @@ extension BLEBridgeTransport: CBPeripheralDelegate {
             connectContinuation = nil
             return
         }
-        pendingNotifySubscriptions = 3
+        pendingNotifySubscriptions = 3 + (spectrum != nil ? 1 : 0)
         peripheral.setNotifyValue(true, for: catTX)
         peripheral.setNotifyValue(true, for: ctrl)
         peripheral.setNotifyValue(true, for: status)
+        if let spectrum {
+            // Optional: absent on pre-panadapter firmware.
+            peripheral.setNotifyValue(true, for: spectrum)
+        }
     }
 
     public func peripheral(_ peripheral: CBPeripheral,
@@ -267,6 +273,8 @@ extension BLEBridgeTransport: CBPeripheralDelegate {
             eventContinuation.yield(.catData(value))
         case BridgeGATT.ctrl:
             eventContinuation.yield(.ctrlFrame(value))
+        case BridgeGATT.spectrum:
+            eventContinuation.yield(.spectrumData(value))
         default:
             break
         }

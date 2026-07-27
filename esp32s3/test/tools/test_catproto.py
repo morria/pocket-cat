@@ -30,6 +30,8 @@ FRAME_ENCODERS = {
     "set_failsafe_tx0": lambda: cp.set_failsafe(b"TX0;"),
     "set_failsafe_rx": lambda: cp.set_failsafe(b"RX;"),
     "set_failsafe_disarm": lambda: cp.set_failsafe(b""),
+    "set_spectrum_on_256_15": lambda: cp.set_spectrum(True, 256, 15),
+    "set_spectrum_off": lambda: cp.set_spectrum(False, 0, 1),
 }
 
 
@@ -171,3 +173,34 @@ def test_uuid_shape():
     # 4 distinct characteristic UUIDs under one service
     assert len({cp.SVC_UUID, cp.CHAR_CAT_RX, cp.CHAR_CAT_TX, cp.CHAR_CTRL,
                 cp.CHAR_STATUS}) == 5
+
+
+# --- Spectrum frame vectors (docs/qmx-panadapter.md 3.3) --------------------
+
+@pytest.mark.parametrize("vec", VECTORS["spectrum_frames"],
+                         ids=lambda v: v["name"])
+def test_spectrum_frame_vectors(vec):
+    r = cp.SpectrumReassembler()
+    frame = None
+    for frag_hex in vec["fragments_hex"]:
+        frame = r.ingest(bytes.fromhex(frag_hex))
+    assert frame is not None
+    assert frame.sequence == vec["sequence"]
+    assert frame.sample_rate_hz == vec["sample_rate_hz"]
+    assert frame.bins == bytes.fromhex(vec["bins_hex"])
+    assert len(frame.bins) == vec["bins_total"]
+    assert r.frames_dropped == 0
+
+
+def test_spectrum_missing_fragment_drops_then_recovers():
+    vec = next(v for v in VECTORS["spectrum_frames"]
+               if len(v["fragments_hex"]) > 1)
+    frags = [bytes.fromhex(h) for h in vec["fragments_hex"]]
+    r = cp.SpectrumReassembler()
+    assert r.ingest(frags[0]) is None
+    # New frame's frag 0 resets the pending one.
+    assert r.ingest(frags[0]) is None
+    for frag in frags[1:]:
+        result = r.ingest(frag)
+    assert result is not None
+    assert r.frames_dropped == 1
