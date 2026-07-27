@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!--
+    App icon source. Regenerate the asset-catalog PNG after editing:
+
+      rsvg-convert -w 1024 -h 1024 Icon/AppIcon.svg -o /tmp/icon.png
+      python3 -c 'from PIL import Image; \
+        im=Image.open("/tmp/icon.png").convert("RGBA"); \
+        f=Image.new("RGB",im.size,(21,31,41)); f.paste(im,mask=im.split()[3]); \
+        f.save("QMXApp/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png")'
+
+    The PNG must stay opaque — the App Store rejects icons with an alpha
+    channel — hence the flatten onto the icon's own background colour.
+    Corners are square: iOS applies the rounded mask itself.
+  -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#24313f"/>
+      <stop offset="1" stop-color="#151f29"/>
+    </linearGradient>
+    <filter id="txtshadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="6" stdDeviation="12" flood-color="#000000" flood-opacity="0.55"/>
+    </filter>
+  </defs>
+
+  <rect width="1024" height="1024" fill="url(#bg)"/>
+
+  <!-- bandscope: capsule bars, cool to warm, tuned signal peaking at centre -->
+  <g>
+    <rect x="132" y="604" width="56" height="68"  rx="28" fill="#5cb8b2" opacity="0.88"/>
+    <rect x="220" y="552" width="56" height="120" rx="28" fill="#5cb8b2"/>
+    <rect x="308" y="500" width="56" height="172" rx="28" fill="#74b48c"/>
+    <rect x="396" y="388" width="56" height="284" rx="28" fill="#f0e6d2"/>
+    <rect x="484" y="242" width="56" height="430" rx="28" fill="#f0e6d2"/>
+    <rect x="572" y="436" width="56" height="236" rx="28" fill="#f0e6d2"/>
+    <rect x="660" y="496" width="56" height="176" rx="28" fill="#e8c765"/>
+    <rect x="748" y="564" width="56" height="108" rx="28" fill="#e8c765"/>
+    <rect x="836" y="584" width="56" height="88"  rx="28" fill="#e08e6f" opacity="0.88"/>
+  </g>
+
+  <text x="512" y="886" filter="url(#txtshadow)"
+        font-family="Helvetica Neue" font-weight="bold" font-size="150"
+        letter-spacing="4" text-anchor="middle" fill="#ffffff">QMX</text>
+</svg>

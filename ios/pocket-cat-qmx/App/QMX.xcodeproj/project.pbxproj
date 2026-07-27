@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		12EACA53919398A684C09F61 /* QMXUI in Frameworks */ = {isa = PBXBuildFile; productRef = 6A93B5B67DEC918C16ACF79B /* QMXUI */; };
 		3C3BE46DB1ADB7199A17F424 /* QMXApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC9E9C194122676E0FDD82E9 /* QMXApp.swift */; };
+		91D6E0590632A183F77561AE /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A704F09F284CAB0C204DB86D /* Assets.xcassets */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -16,6 +17,7 @@
 		372A898E4CAF61C043A2CFDA /* QMXApp.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = QMXApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		6CC7379BAB0392AA870A522B /* QMXApp.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = QMXApp.entitlements; sourceTree = "<group>"; };
 		73E7EB6527E536CACA7C687F /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		A704F09F284CAB0C204DB86D /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		CC9E9C194122676E0FDD82E9 /* QMXApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QMXApp.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -59,6 +61,7 @@
 		D4AF30010399B1141FA0BACB /* QMXApp */ = {
 			isa = PBXGroup;
 			children = (
+				A704F09F284CAB0C204DB86D /* Assets.xcassets */,
 				73E7EB6527E536CACA7C687F /* Info.plist */,
 				6CC7379BAB0392AA870A522B /* QMXApp.entitlements */,
 				CC9E9C194122676E0FDD82E9 /* QMXApp.swift */,
@@ -74,6 +77,7 @@
 			buildConfigurationList = 531F44103CEBCDB65897DFC1 /* Build configuration list for PBXNativeTarget "QMXApp" */;
 			buildPhases = (
 				EECA1F1FB1B41EAB97C47728 /* Sources */,
+				F4F3FE646B4A205B69130E9A /* Resources */,
 				E94B4A0228D074E089E0FA74 /* Frameworks */,
 			);
 			buildRules = (
@@ -97,6 +101,10 @@
 				BuildIndependentTargetsInParallel = YES;
 				LastUpgradeCheck = 1430;
 				TargetAttributes = {
+					68AA897B9DD14EA0627EE498 = {
+						DevelopmentTeam = 7Q2SS8772K;
+						ProvisioningStyle = Automatic;
+					};
 				};
 			};
 			buildConfigurationList = 77B1B581EB7B538B74AE2016 /* Build configuration list for PBXProject "QMX" */;
@@ -120,6 +128,17 @@
 			);
 		};
 /* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		F4F3FE646B4A205B69130E9A /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				91D6E0590632A183F77561AE /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		EECA1F1FB1B41EAB97C47728 /* Sources */ = {
@@ -258,6 +277,8 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = QMXApp/QMXApp.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = 7Q2SS8772K;
 				INFOPLIST_FILE = QMXApp/Info.plist;
 				INFOPLIST_KEY_UIUserInterfaceStyle = Automatic;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -277,6 +298,8 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = QMXApp/QMXApp.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = 7Q2SS8772K;
 				INFOPLIST_FILE = QMXApp/Info.plist;
 				INFOPLIST_KEY_UIUserInterfaceStyle = Automatic;
 				LD_RUNPATH_SEARCH_PATHS = (
