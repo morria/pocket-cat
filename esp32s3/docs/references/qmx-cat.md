@@ -33,49 +33,77 @@ Same Set / Read / Answer shape as Kenwood:
 - **Answer:** `FA00014250000;`
 - Kenwood uses **11-digit** frequency fields (vs Yaesu's 9). Mind the width.
 
-## Supported commands (TS-480 subset)
+## Supported commands (verified against the QMX CAT manual, fw 1_02_006)
 
-The subset is chosen so WSJT-X, fldigi, Hamlib (`TS-480` backend), and similar
-can drive QMX. Confirm exact support in the QMX CAT PDF for your firmware.
+Grounded in *QMX CAT programming manual, firmware 1.02_006* (30-Oct-2025) —
+the authoritative source. Alphabetical:
 
 | Op | Function | Notes |
 |----|----------|-------|
-| `ID` | Radio ID | TS-480 replies `ID020;`. QMX identifies as TS-480-compatible. |
-| `FA` | VFO-A frequency | **11 digits**, Hz. `FA00014250000;` |
+| `AG` | AF gain | 0.25 dB steps; `AG091;` = 22.75 dB. `AG;` or `AG0;` read. |
+| `C2` | Signal generator | Si5351A Clk2 frequency get/set. |
+| `FA` | VFO-A frequency | **11 digits** on read. `FA7030000;` set works too. |
 | `FB` | VFO-B frequency | 11 digits, Hz. |
-| `FR` | Receive VFO / function | `FR0;`/`FR1;` |
-| `FT` | Transmit VFO / function | `FT0;`/`FT1;` (split control) |
-| `MD` | Mode | single digit, Kenwood codes (below). `MD3;` = CW. |
-| `IF` | Information | Kenwood IF layout (fixed-width, freq + mode + TX flag). |
-| `TX` | Transmit (PTT on) | `TX;` keys. |
-| `RX` | Receive (PTT off) | `RX;` unkeys. **← recommended `SET_FAILSAFE` payload.** |
-| `PS` | Power status | `PS1;` on. |
-| `AI` | Auto-information | `AI0;`/`AI2;` |
-| `KS` | Keyer speed (WPM) | CW speed for `KY`. |
-| `KY` | CW keying — send text | initiates CW send at current WPM; see below. |
-| `RD`/`RU` | RIT down / up | if RIT supported. |
-| `SM` | S-meter read | `SM0;` → level. |
-| `PC` | Output power | may be fixed/limited on QMX. |
-| `SP`/`RT`/`XT` | split / RIT / XIT | as available. |
+| `FR`/`FT` | VFO mode | 0/1/2 = VFO A / VFO B / Split (both commands). |
+| `FW` | Filter bandwidth | read-only: `3200` digi, `0300` CW. |
+| `ID` | Radio ID | always `ID020;` (TS-480). `OM;` → `OMQC;` tells QMX apart. |
+| `IF` | Information | TS-480 layout: freq, RIT, TX flag, mode, VFO, split. |
+| `KS` | Keyer speed (WPM) | get/set. |
+| `KY` | CW message keying | `KY <text>;` — two formats per TS-480-compat menu. |
+| `LC` | LCD contents | read-only, 32 chars of the 1602 screen. |
+| `MD` | Mode | **only `3` CW, `6` DIGI/FSK, `7` CW-R, `9` FSK-R** (below). |
+| `ML`/`MM` | **Menu Manager** | full config-tree discovery + get/set (below). |
+| `PC` | Output power | **GET-only, tenths of a watt**: `PC45;` = 4.5 W measured. |
+| `Q0`–`QC` | QRP Labs extensions | session-only params (below). |
+| `RC`/`RD`/`RU`/`RT` | RIT | clear / down / up / status; abs. or relative per config. |
+| `RX`/`TX`/`TQ` | PTT | `RX;` unkeys (**← `SET_FAILSAFE` payload**), `TX;` keys, `TQn;` get/set. |
+| `SA` | AGC meter | read-only, gain attenuation in dB. |
+| `SM` | S-meter | read-only, **value in dB** (not TS-480 4-digit form). |
+| `SP` | Split | `SP0;`/`SP1;` get/set. |
+| `SS` | SSB TX source | 0 USB audio / 1 two-tone test / 2 mic. |
+| `SW` | SWR meter | read-only, hundredths (`SW121;` = 1.21:1); empty in RX. |
+| `TA` | TX audio tone | digi-mode key-down tone in fractional Hz; `TA0;` keys up. |
+| `TB` | CW decoder buffer | read-only, drains the 40-char decode buffer. |
+| `TM` | Real-time clock | `TM135532;` get/set hhmmss. |
+| `VN` | Firmware version | e.g. `VN1_02_006QMX;`. |
 
-QMX-specific additions/exceptions exist (QRP Labs notes "one or two"); the CAT
-PDF is authoritative. WSJT-X's TS-480 profile is the practical compatibility bar.
+## `MD` — mode codes (QMX subset)
 
-## `MD` — mode codes (Kenwood)
+Single digit, `MD<code>;`. **QMX accepts only:**
 
-Single digit, `MD<code>;`:
+| Code | Mode |
+|------|------|
+| `3` | CW |
+| `6` | DIGI (FSK) |
+| `7` | CW-R |
+| `9` | FSK-R |
 
-| Code | Mode | Code | Mode |
-|------|------|------|------|
-| `1` | LSB | `6` | FSK / RTTY |
-| `2` | USB | `7` | CW-R |
-| `3` | CW | `9` | FSK-R / RTTY-R |
-| `4` | FM | | |
-| `5` | AM | | |
+There is no LSB/USB/AM/FM via `MD` — sideband is the `Q1` extension
+(`Q11;` = LSB, other = USB; session-only, not saved to EEPROM).
 
-(Code `8` is TUNE/PKTUSB on some Kenwood rigs; `≥10` are packet/data modes on
-full TS-480 but generally not on QMX. QMX in practice cares about CW / USB /
-LSB for its operating modes.)
+## `MM` / `ML` — Menu Manager (full configuration access)
+
+The QMX exposes its **entire configuration menu tree** over CAT:
+
+- **Get:** `MM<path>;` → `MM<value>;`
+- **Set:** `MM<path>=<value>;` — **persisted to EEPROM** (unlike the
+  two-letter commands and `Q` extensions, which are session-only).
+- **Discovery:** `MM<path>|<index>?;` → `MM<type>|<len>|<name>;` walks the
+  tree; `MM<index>?;` at the root. Types: 0 sub-menu, 1 action/app,
+  2 string, 3 number, 4 byte, 5 list, 6 info, 7 mask.
+- **List options:** `ML<listType>;` → `ML<opt>|<opt>|…;` for list items.
+
+Paths are `|`-delimited menu names (case-insensitive) or numeric indexes,
+e.g. `MMAudio|AGC settings|Threshold S;`. Grid pages (Band config.) take an
+array subscript: `MMBand config.|RF gain (db)[3];`. Items whose *name* is
+numeric (CW filter rows) must be addressed by index. Error reply is `?;`.
+
+## `Q0`–`QC` — QRP Labs extensions (session-only)
+
+`Q0` TCXO ref freq · `Q1` sideband · `Q2` VFO A (= `FA`) · `Q3` VOX ·
+`Q4`/`Q5` TX rise/fall thresholds · `Q6`/`Q7`/`Q8` cycle/sample/discard ·
+`Q9` IQ mode · `QA` Japanese band limits · `QB`/`QC` CAT timeout
+enable/seconds. None are saved to EEPROM.
 
 ## `KY` — CW keying
 

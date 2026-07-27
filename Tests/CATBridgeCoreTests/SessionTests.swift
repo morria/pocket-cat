@@ -127,9 +127,13 @@ struct Rig {
     @Test func setModeQMXKenwoodCodes() async throws {
         let rig = Rig(radio: QmxPersonality(), radioID: .qmxCDC)
         try await rig.start()
-        try await rig.session.setMode(.usb)
+        try await rig.session.setMode(.rtty) // DIGI (FSK) on the QMX
         let journal = await rig.transport.journal
-        #expect(journal.contains(.cat("MD2;")))
+        #expect(journal.contains(.cat("MD6;")))
+        // No USB/LSB via MD on the QMX (sideband is Q1) — must throw.
+        await #expect(throws: CATBridgeError.unsupportedMode(.usb)) {
+            try await rig.session.setMode(.usb)
+        }
     }
 
     @Test func timeoutThenRetrySucceedsForIdempotent() async throws {
@@ -592,18 +596,22 @@ struct Rig {
         #expect(!journal.contains(.cat("PC500;")))
     }
 
-    @Test func qmxPowerReadAndClampedSet() async throws {
+    @Test func qmxPowerMeterIsReadOnly() async throws {
         let radio = QmxPersonality()
         let rig = Rig(radio: radio, radioID: .qmxCDC)
         try await rig.start()
 
         let snap = await rig.snapshot()
-        #expect(snap.power == 5) // filled at connect from PC005;
-        // The QMX clamps what it can't do; a re-read shows the truth.
-        try await rig.session.setPower(watts: 100)
-        #expect(radio.power == 5)
+        #expect(snap.power == 4.5) // filled at connect from PC45; (tenths)
         let read = try await rig.session.readPower()
-        #expect(read == 5)
+        #expect(read == 4.5)
+        // cat_1_02_006: PC is GET-only — set must throw before the wire.
+        await #expect(throws:
+            CATBridgeError.unsupportedCapability(.rfPowerControl)) {
+            try await rig.session.setPower(watts: 5)
+        }
+        let range = await rig.session.powerRange
+        #expect(range == nil)
     }
 
     @Test func qmxSMeterIsPolled() async throws {
@@ -611,7 +619,7 @@ struct Rig {
         try await rig.start()
         await rig.clock.pump(.seconds(2))
         let snap = await rig.snapshot()
-        #expect(snap.sMeter == 5)
+        #expect(snap.sMeter == 12) // dB, from SM12;
     }
 
     @Test func settingsRoundTripFT891() async throws {

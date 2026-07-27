@@ -82,9 +82,10 @@ public struct TransceiverSnapshot: Sendable, Equatable {
     public var mode: OperatingMode?
     public var isTransmitting: Bool = false
     public var sMeter: Int?
-    /// RF output power, watts. Filled once at connect and after each
-    /// `setPower`; radios with no power control leave it nil.
-    public var power: Int?
+    /// RF output power, watts (fractional on radios that report tenths,
+    /// e.g. QMX). Filled once at connect and after each `setPower`; radios
+    /// with no power readback leave it nil.
+    public var power: Double?
     public var bridge: BridgeHealth = BridgeHealth()
 
     public init() {}

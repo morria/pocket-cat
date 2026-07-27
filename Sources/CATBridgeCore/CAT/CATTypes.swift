@@ -126,8 +126,9 @@ public enum CATValue: Sendable, Equatable {
     case ptt(Bool)
     case sMeter(Int)
     case info(RigInfo)
-    /// RF output power, watts.
-    case power(Int)
+    /// RF output power, watts. Double because the QMX reports measured
+    /// output in tenths of a watt (`PC45;` = 4.5 W — cat_1_02_006).
+    case power(Double)
     case setting(RigSetting, Int)
     /// A menu item (Yaesu `EX`): number as sent, value as the raw digit
     /// string the radio returned.

@@ -181,10 +181,11 @@ public actor TransceiverSession {
 
     // MARK: - RF power
 
-    public func readPower() async throws -> Int {
+    /// Reads measured/configured RF output power in watts. Available even
+    /// without `.rfPowerControl` — the QMX exposes a GET-only power meter.
+    public func readPower() async throws -> Double {
         let dialect = try readyDialect()
-        guard dialect.capabilities.contains(.rfPowerControl),
-              let command = dialect.readPower else {
+        guard let command = dialect.readPower else {
             throw CATBridgeError.unsupportedCapability(.rfPowerControl)
         }
         guard let reply = try await execute(command),
@@ -202,7 +203,7 @@ public actor TransceiverSession {
             throw CATBridgeError.unsupportedCapability(.rfPowerControl)
         }
         _ = try await execute(try dialect.setPower(watts: watts))
-        model.power = watts // optimistic; the radio may clamp — re-read to confirm
+        model.power = Double(watts) // optimistic; the radio may clamp — re-read to confirm
         publish()
     }
 
@@ -435,8 +436,7 @@ public actor TransceiverSession {
     /// AI pushes. Best-effort: a radio that rejects `PC;` just leaves
     /// `snapshot.power` nil.
     private func refreshPowerOnce() async {
-        guard let dialect, dialect.capabilities.contains(.rfPowerControl),
-              let command = dialect.readPower,
+        guard let dialect, let command = dialect.readPower,
               let reply = try? await execute(command),
               let value = try? dialect.parse(reply: reply, to: command),
               case let .power(watts) = value else { return }

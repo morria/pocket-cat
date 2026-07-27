@@ -177,9 +177,9 @@ final class Ftx1Personality: RadioPersonality {
 final class QmxPersonality: RadioPersonality {
     var vfoA = "00014074000" // 11 digits, Hz (Kenwood)
     var mode: Character = "3"
-    var power = 5
+    var powerTenths = 45 // PC45; = 4.5 W (QMX reports tenths, get-only)
     var keyerSpeed = 20
-    var sMeter = 5
+    var sMeter = 12 // dB
 
     override var idReply: String { "ID020;" }
 
@@ -194,8 +194,8 @@ final class QmxPersonality: RadioPersonality {
             return "IF\(vfoA)     +000000000\(tx)\(mode)0000000 ;"
         case "TX;": transmitting = true; return "" // Kenwood: TX; KEYS
         case "RX;": transmitting = false; return ""
-        case "SM0;": return String(format: "SM0%04d;", sMeter) // TS-480 width
-        case "PC;": return String(format: "PC%03d;", power)
+        case "SM;", "SM0;": return "SM\(sMeter);" // QMX: S-meter in dB
+        case "PC;": return "PC\(powerTenths);" // QMX: tenths of a watt, GET-only
         case "KS;": return String(format: "KS%03d;", keyerSpeed)
         default:
             if cmd.hasPrefix("FA"), cmd.count == 14 {
@@ -206,13 +206,13 @@ final class QmxPersonality: RadioPersonality {
                 }
             }
             if cmd.hasPrefix("MD"), cmd.count == 4 {
-                mode = Array(cmd)[2]
+                let code = Array(cmd)[2]
+                guard "3679".contains(code) else { return "?;" } // QMX set
+                mode = code
                 return ""
             }
-            if cmd.hasPrefix("PC"), cmd.count == 6,
-               let watts = Int(String(Array(cmd)[2...4])) {
-                power = min(watts, 5) // QMX: output ceiling, radio clamps
-                return ""
+            if cmd.hasPrefix("PC"), cmd.count > 3 {
+                return "?;" // QMX: PC is GET-only (cat_1_02_006)
             }
             if cmd.hasPrefix("KS"), cmd.count == 6,
                let wpm = Int(String(Array(cmd)[2...4])) {

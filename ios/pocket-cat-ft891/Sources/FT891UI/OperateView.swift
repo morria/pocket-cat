@@ -60,13 +60,13 @@ struct OperateView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 Spacer()
-                Text("\(Int(powerEditing ?? Double(rig.state?.power ?? 100))) W")
+                Text("\(Int(powerEditing ?? (rig.state?.power ?? 100))) W")
                     .font(.callout.monospacedDigit().weight(.medium))
             }
             Slider(
                 value: Binding(
                     get: {
-                        powerEditing ?? Double(rig.state?.power ?? 100)
+                        powerEditing ?? (rig.state?.power ?? 100)
                     },
                     set: { powerEditing = $0 }
                 ),
@@ -78,7 +78,7 @@ struct OperateView: View {
                 }
             }
             .accessibilityLabel("RF power")
-            .accessibilityValue("\(rig.state?.power ?? 0) watts")
+            .accessibilityValue("\(Int(rig.state?.power ?? 0)) watts")
         }
         .padding(.horizontal)
     }

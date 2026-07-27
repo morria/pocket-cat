@@ -178,9 +178,9 @@ class Qmx(RadioPersonality):
         self.vfo_a = b"00014074000"  # 11 digits, Hz
         self.vfo_b = b"00007074000"
         self.mode = b"3"
-        self.power = 5
+        self.power_tenths = 45  # PC45; = 4.5 W (QMX reports tenths, get-only)
         self.keyer_speed = 20
-        self.s_meter = 5
+        self.s_meter = 12  # dB
 
     def respond(self, cmd: bytes) -> bytes:
         if cmd == b"ID;":
@@ -195,6 +195,8 @@ class Qmx(RadioPersonality):
         if cmd == b"MD;":
             return b"MD" + self.mode + b";"
         if cmd.startswith(b"MD") and len(cmd) == 4:
+            if cmd[2:3] not in (b"3", b"6", b"7", b"9"):
+                return b"?;"  # QMX: CW/DIGI/CWR/FSK-R only (cat_1_02_006)
             self.mode = cmd[2:3]
             return b""
         if cmd == b"IF;":
@@ -208,14 +210,12 @@ class Qmx(RadioPersonality):
         if cmd == b"RX;":
             self.tx = False
             return b""
-        if cmd == b"SM0;":
-            return b"SM0%04d;" % self.s_meter  # TS-480 4-digit meter field
+        if cmd in (b"SM;", b"SM0;"):
+            return b"SM%d;" % self.s_meter  # QMX: S-meter in dB
         if cmd == b"PC;":
-            return b"PC%03d;" % self.power
-        if cmd.startswith(b"PC") and len(cmd) == 6 and cmd[2:5].isdigit():
-            # QMX output ceiling: the radio clamps what it can't do
-            self.power = min(int(cmd[2:5]), 5)
-            return b""
+            return b"PC%d;" % self.power_tenths  # tenths of a watt
+        if cmd.startswith(b"PC") and len(cmd) > 3:
+            return b"?;"  # QMX: PC is GET-only (cat_1_02_006)
         if cmd == b"KS;":
             return b"KS%03d;" % self.keyer_speed
         if cmd.startswith(b"KS") and len(cmd) == 6 and cmd[2:5].isdigit():

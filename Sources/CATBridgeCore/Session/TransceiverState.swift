@@ -12,7 +12,7 @@ public final class TransceiverState {
     public private(set) var mode: OperatingMode?
     public private(set) var isTransmitting: Bool = false
     public private(set) var sMeter: Int?
-    public private(set) var power: Int?
+    public private(set) var power: Double?
     public private(set) var bridge: BridgeHealth = BridgeHealth()
 
     public nonisolated init() {}

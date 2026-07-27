@@ -282,13 +282,13 @@ public struct YaesuDialect: CATDialect {
         return chars[2] != "0"
     }
 
-    private func parsePower(_ reply: String) throws -> Int {
-        // PCnnn;
+    private func parsePower(_ reply: String) throws -> Double {
+        // PCnnn; — whole watts on Yaesu.
         let chars = Array(reply)
         guard chars.count == 6, reply.hasPrefix("PC"),
               let watts = Int(String(chars[2...4]))
         else { throw CATBridgeError.malformedResponse(reply) }
-        return watts
+        return Double(watts)
     }
 
     private func parseSetting(_ reply: String, spec prefix: String)

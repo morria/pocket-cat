@@ -1,0 +1,50 @@
+# Xcode shell for the QMX app. Regenerate after edits:
+#   cd App && xcodegen generate
+name: QMX
+options:
+  bundleIdPrefix: radio.qmx
+  deploymentTarget:
+    iOS: "17.0"
+packages:
+  QMX:
+    path: ..
+targets:
+  QMXApp:
+    type: application
+    platform: iOS
+    sources:
+      - QMXApp
+    dependencies:
+      - package: QMX
+        product: QMXUI
+    info:
+      path: QMXApp/Info.plist
+      properties:
+        CFBundleDisplayName: QMX
+        UILaunchScreen: {}
+        NSBluetoothAlwaysUsageDescription: >-
+          QMX connects to your Pocket Cat CAT bridge over Bluetooth to
+          control the radio.
+        UIBackgroundModes:
+          - bluetooth-central
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+        NSUbiquitousContainers:
+          iCloud.radio.qmx.QMXApp:
+            NSUbiquitousContainerIsDocumentScopePublic: true
+            NSUbiquitousContainerName: QMX
+            NSUbiquitousContainerSupportedFolderLevels: Any
+    entitlements:
+      path: QMXApp/QMXApp.entitlements
+      properties:
+        com.apple.developer.icloud-services:
+          - CloudDocuments
+        com.apple.developer.icloud-container-identifiers:
+          - iCloud.radio.qmx.QMXApp
+        com.apple.developer.ubiquity-container-identifiers:
+          - iCloud.radio.qmx.QMXApp
+    settings:
+      base:
+        SWIFT_VERSION: "6.0"
+        TARGETED_DEVICE_FAMILY: "1"
+        INFOPLIST_KEY_UIUserInterfaceStyle: Automatic

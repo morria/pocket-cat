@@ -216,12 +216,19 @@ def test_ft891_menu_read_set_unknown():
     assert r.feed(b"EX9999;") == b"?;"
 
 
-def test_qmx_power_clamped_smeter_keyer():
+def test_qmx_power_getonly_smeter_keyer():
     r = Qmx()
-    assert r.feed(b"PC;") == b"PC005;"
-    assert r.feed(b"PC100;") == b""  # QMX clamps to its output ceiling
-    assert r.feed(b"PC;") == b"PC005;"
-    assert r.feed(b"SM0;") == b"SM00005;"  # TS-480 4-digit meter
+    assert r.feed(b"PC;") == b"PC45;"  # tenths of a watt (4.5 W)
+    assert r.feed(b"PC100;") == b"?;"  # GET-only (cat_1_02_006)
+    assert r.feed(b"SM;") == b"SM12;"  # S-meter in dB
     assert r.feed(b"KS;") == b"KS020;"
     assert r.feed(b"KS025;") == b""
     assert r.feed(b"KS;") == b"KS025;"
+
+
+def test_qmx_mode_subset():
+    r = Qmx()
+    assert r.feed(b"MD3;") == b""
+    assert r.feed(b"MD;") == b"MD3;"
+    assert r.feed(b"MD2;") == b"?;"  # no USB/LSB via MD on QMX
+    assert r.feed(b"MD6;") == b""

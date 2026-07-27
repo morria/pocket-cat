@@ -145,6 +145,12 @@ swift test                       # FT891Kit + sim-driven integration
 cd App && xcodegen generate      # then open FT891.xcodeproj
 ```
 
+QMX app — the same treatment for the QRP Labs QMX lives in
+[`ios/pocket-cat-qmx`](ios/pocket-cat-qmx): operate (four modes +
+sideband, RIT, split, keyer), the radio's **entire menu tree** discovered
+live over the QMX `MM`/`ML` Menu Manager with per-item explanations,
+save/load-everything profiles, and its own built-in simulator.
+
 ## Repository layout
 
 ```
@@ -159,6 +165,8 @@ Tests/
 ios/
   pocket-cat-ft891/ FT-891 iOS app — FT891Kit (menu catalog, profiles,
                     simulator) + FT891UI (SwiftUI) + xcodegen app shell
+  pocket-cat-qmx/   QMX iOS app — QMXKit (MM/ML menu client, profiles,
+                    simulator) + QMXUI (SwiftUI) + xcodegen app shell
 BOM.md              bill of materials for one unit
 enclosure/          3D-printable case — pocket_cat_case.scad + base/lid STLs,
                     with printing and assembly instructions

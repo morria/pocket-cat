@@ -57,6 +57,24 @@ jobs:
             -skipMacroValidation \
             CODE_SIGNING_ALLOWED=NO
 
+  qmx-app:
+    name: QMX app (swift test + iOS build)
+    runs-on: macos-15
+    defaults:
+      run:
+        working-directory: ios/pocket-cat-qmx
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and test (QMXKit + sim integration)
+        run: swift test
+      - name: iOS simulator build (QMXUI, SwiftUI surface)
+        run: |
+          xcodebuild build \
+            -scheme QMXUI \
+            -destination 'generic/platform=iOS Simulator' \
+            -skipMacroValidation \
+            CODE_SIGNING_ALLOWED=NO
+
   firmware-build:
     name: ESP-IDF build (esp32s3)
     runs-on: ubuntu-latest

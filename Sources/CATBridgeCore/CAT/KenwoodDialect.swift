@@ -15,16 +15,19 @@ public struct KenwoodDialect: CATDialect {
     public static let qmx = KenwoodDialect()
 
     public var capabilities: RadioCapabilities {
-        // qmx-cat.md lists SM and PC in the QMX's TS-480 subset; PC "may be
-        // fixed/limited" on QMX hardware — confirm at bring-up. No EX menu.
-        [.frequencyControl, .modeControl, .ptt, .keyerText, .sMeter,
-         .rfPowerControl]
+        // Per the QMX CAT manual (cat_1_02_006): SM reads the S-meter (dB),
+        // PC is a GET-ONLY output-power meter — so no .rfPowerControl (that
+        // bit means the radio's power can be SET). No EX menu; QMX menus go
+        // through its own MM/ML Menu Manager, layered above this dialect.
+        [.frequencyControl, .modeControl, .ptt, .keyerText, .sMeter]
     }
 
-    // Kenwood mode table (Hamlib kenwood_mode_table[]).
+    // QMX MD codes (cat_1_02_006): ONLY 3/6/7/9 — CW, DIGI (FSK), CW-R,
+    // FSK-R. There is no LSB/USB/AM/FM via MD on the QMX; sideband is a
+    // separate `Q1` extension handled above the dialect. Full TS-480s
+    // accept more codes, but this dialect models the QMX.
     static let modeForCode: [Character: OperatingMode] = [
-        "1": .lsb, "2": .usb, "3": .cw, "4": .fm, "5": .am,
-        "6": .rtty, "7": .cwReverse, "9": .rttyReverse,
+        "3": .cw, "6": .rtty, "7": .cwReverse, "9": .rttyReverse,
     ]
     static let codeForMode: [OperatingMode: Character] = {
         var out: [OperatingMode: Character] = [:]
@@ -62,28 +65,22 @@ public struct KenwoodDialect: CATDialect {
     /// Kenwood `TX;` is a SET (it keys the radio) — never poll it.
     public var readPTT: CATCommand? { nil }
 
+    /// QMX `SM;` returns the S-meter in dB (cat_1_02_006), not the TS-480
+    /// `SM0nnnn;` form.
     public var readSMeter: CATCommand? {
-        CATCommand(wire: "SM0;", replyPrefix: "SM0")
+        CATCommand(wire: "SM;", replyPrefix: "SM")
     }
 
-    // MARK: - RF power (PC; qmx-cat.md "may be fixed/limited on QMX")
+    // MARK: - RF power (cat_1_02_006: GET-only measured output, tenths of W)
 
     public var readPower: CATCommand? {
         CATCommand(wire: "PC;", replyPrefix: "PC")
     }
 
-    /// TS-480 wire range is 005–100; the QMX's real output ceiling (~5 W)
-    /// is firmware-dependent — the radio clamps or rejects what it can't do.
-    public var powerRange: ClosedRange<Int>? { 5...100 }
-
-    public func setPower(watts: Int) throws -> CATCommand {
-        guard let range = powerRange, range.contains(watts) else {
-            throw CATBridgeError.invalidArgument(
-                "power \(watts) W outside \(powerRange.map(String.init(describing:)) ?? "supported") range")
-        }
-        return CATCommand(wire: String(format: "PC%03d;", watts),
-                          replyPrefix: nil)
-    }
+    /// No `.rfPowerControl`: QMX output power is not settable over CAT, so
+    /// there is no valid set range and `setPower` keeps the throwing
+    /// default. `readPower` still works — it is a live power meter.
+    public var powerRange: ClosedRange<Int>? { nil }
 
     // MARK: - Settings (KS is the QMX's only listed level control)
 
@@ -147,7 +144,7 @@ public struct KenwoodDialect: CATDialect {
             return .mode(try parseMode(reply))
         case "IF":
             return .info(try parseInfo(reply))
-        case "SM0":
+        case "SM":
             return .sMeter(try parseSMeter(reply))
         case "PC":
             return .power(try parsePower(reply))
@@ -189,21 +186,21 @@ public struct KenwoodDialect: CATDialect {
     }
 
     private func parseSMeter(_ reply: String) throws -> Int {
-        // TS-480: SM0nnnn; — parse lenient on width in case QMX firmware
-        // answers fewer digits (confirm at bring-up).
-        guard reply.hasPrefix("SM0"), reply.hasSuffix(";"),
-              let value = Int(reply.dropFirst(3).dropLast())
+        // QMX: SMnnn; — the S-meter value in dB, variable width
+        // (cat_1_02_006). Also tolerates a TS-480-style SM0nnnn; frame.
+        guard reply.hasPrefix("SM"), reply.hasSuffix(";"),
+              let value = Int(reply.dropFirst(2).dropLast())
         else { throw CATBridgeError.malformedResponse(reply) }
         return value
     }
 
-    private func parsePower(_ reply: String) throws -> Int {
-        // PCnnn;
-        let chars = Array(reply)
-        guard chars.count == 6, reply.hasPrefix("PC"),
-              let watts = Int(String(chars[2...4]))
+    private func parsePower(_ reply: String) throws -> Double {
+        // QMX: PCnn; — measured output power in TENTHS of a watt, variable
+        // width ("PC45;" = 4.5 W, cat_1_02_006).
+        guard reply.hasPrefix("PC"), reply.hasSuffix(";"),
+              let tenths = Int(reply.dropFirst(2).dropLast())
         else { throw CATBridgeError.malformedResponse(reply) }
-        return watts
+        return Double(tenths) / 10.0
     }
 
     private func parseKeyerSpeed(_ reply: String) throws -> Int {

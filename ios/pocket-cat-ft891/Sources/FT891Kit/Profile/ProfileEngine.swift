@@ -73,7 +73,8 @@ public enum ProfileEngine {
         step("VFO A")
         profile.operating.vfoBHz = try? await session.readVFOB().hertz
         step("VFO B")
-        profile.operating.powerWatts = try? await session.readPower()
+        profile.operating.powerWatts =
+            (try? await session.readPower()).map { Int($0.rounded()) }
         step("RF power")
         profile.operating.split = (try? await session.readSplit())?.rawValue
         step("Split")

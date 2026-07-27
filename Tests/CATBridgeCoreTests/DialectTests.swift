@@ -135,19 +135,19 @@ import Testing
     }
 
     @Test(arguments: [
-        (OperatingMode.lsb, "1"), (.usb, "2"), (.cw, "3"), (.fm, "4"),
-        (.am, "5"), (.rtty, "6"), (.cwReverse, "7"), (.rttyReverse, "9"),
+        (OperatingMode.cw, "3"), (.rtty, "6"), (.cwReverse, "7"),
+        (.rttyReverse, "9"),
     ])
     func modeTable(mode: OperatingMode, code: String) throws {
+        // QMX MD accepts ONLY 3/6/7/9 (cat_1_02_006); sideband is Q1.
         #expect(try dialect.setMode(mode).wire == "MD\(code);")
     }
 
     @Test func unsupportedModesThrow() {
-        #expect(throws: (any Error).self) {
-            _ = try dialect.setMode(.c4fm)
-        }
-        #expect(throws: (any Error).self) {
-            _ = try dialect.setMode(.dataUSB)
+        for mode in [OperatingMode.c4fm, .dataUSB, .lsb, .usb, .am, .fm] {
+            #expect(throws: (any Error).self) {
+                _ = try dialect.setMode(mode)
+            }
         }
     }
 
@@ -178,9 +178,11 @@ import Testing
     }
 
     @Test func capabilitiesMatchQMXSubset() {
-        // qmx-cat.md: SM and PC are in the TS-480 subset (PC may be
-        // fixed/limited on hardware); there is no EX menu access.
-        #expect(dialect.capabilities.contains(.rfPowerControl))
+        // cat_1_02_006: SM reads dB, PC is a GET-only power meter (so no
+        // .rfPowerControl — power is not settable), no EX menu (QMX menus
+        // are the MM/ML Menu Manager, above the dialect).
+        #expect(!dialect.capabilities.contains(.rfPowerControl))
+        #expect(dialect.readPower != nil)
         #expect(dialect.capabilities.contains(.sMeter))
         #expect(!dialect.capabilities.contains(.menuAccess))
         #expect(dialect.capabilities.contains(.ptt))
@@ -283,25 +285,31 @@ import Testing
         #expect(YaesuDialect.ft891.parseUnsolicited("PC050;") == .power(50))
     }
 
-    @Test func kenwoodPowerEncodingAndParsing() throws {
+    @Test func kenwoodPowerIsGetOnlyTenths() throws {
         let dialect = KenwoodDialect.qmx
         let read = try #require(dialect.readPower)
         #expect(read.wire == "PC;")
-        #expect(try dialect.parse(reply: "PC005;", to: read) == .power(5))
-        #expect(try dialect.setPower(watts: 5).wire == "PC005;")
-        #expect(throws: (any Error).self) {
-            _ = try dialect.setPower(watts: 0)
+        // cat_1_02_006: PC returns tenths of a watt, variable width.
+        #expect(try dialect.parse(reply: "PC45;", to: read) == .power(4.5))
+        #expect(try dialect.parse(reply: "PC5;", to: read) == .power(0.5))
+        #expect(try dialect.parse(reply: "PC120;", to: read) == .power(12.0))
+        // GET-only: no set range, and setPower keeps the throwing default.
+        #expect(dialect.powerRange == nil)
+        #expect(throws:
+            CATBridgeError.unsupportedCapability(.rfPowerControl)) {
+            _ = try dialect.setPower(watts: 5)
         }
     }
 
-    @Test func kenwoodSMeterTS480Width() throws {
+    @Test func kenwoodSMeterInDecibels() throws {
         let dialect = KenwoodDialect.qmx
         let read = try #require(dialect.readSMeter)
-        #expect(read.wire == "SM0;")
+        #expect(read.wire == "SM;")
+        #expect(try dialect.parse(reply: "SM12;", to: read) == .sMeter(12))
+        // Tolerates a TS-480-style frame from older tooling.
         #expect(try dialect.parse(reply: "SM00005;", to: read) == .sMeter(5))
-        #expect(try dialect.parse(reply: "SM0012;", to: read) == .sMeter(12))
         #expect(throws: (any Error).self) {
-            _ = try dialect.parse(reply: "SM0;", to: read)
+            _ = try dialect.parse(reply: "SM;", to: read)
         }
     }
 }
