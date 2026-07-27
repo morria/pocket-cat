@@ -54,22 +54,67 @@ Because the BLE link can key a 100 W transmitter, the release firmware
 requires LE Secure Connections bonding before accepting any CAT or control
 writes, and a dead-man failsafe drops PTT if the link goes quiet.
 
-## Repository layout
+## What to buy
 
-```
-esp32s3/            bridge side
-  firmware/         ESP-IDF (≥5.2) project for the XIAO ESP32-S3
-  test/host/        C unit + end-to-end simulation suites (gcc, ASan/UBSan)
-  test/tools/       radio_sim.py, ble_client.py, soak.py bench tools
-  docs/             implementation plan, BLE protocol spec (normative)
-Package.swift       Swift package manifest (swift-tools 6.0; iOS 17 / macOS 14)
-Sources/            CATBridgeCore (pure logic) + CATBridgeBLE (CoreBluetooth)
-Tests/
-enclosure/          3D-printable case for the XIAO board (SCAD + STL)
-docs/               system-level reports + library implementation plan
-```
+A complete unit is a XIAO ESP32-S3, a small LiPo cell, a boost converter to
+feed 5 V back to the radio's USB port, a slide switch, and two printed
+parts. Full part numbers, dimensions, and substitution notes are in
+[`BOM.md`](BOM.md); this is the shopping summary.
 
-## Building
+| Qty | Item | Notes |
+|---|---|---|
+| 1 | Seeed XIAO ESP32-S3 | Must be the version with the U.FL connector — there is no onboard antenna |
+| 1 | FPC antenna, 2.4 GHz, 37 × 18 mm | Ships with the XIAO |
+| 1 | LiPo cell, 602535, 3.7 V 500 mAh | 25 × 37 × 6 mm; the JST plug gets cut off |
+| 1 | TPS61023 boost module | Adafruit MiniBoost or clone; do **not** fit the pin header |
+| 1 | Slide switch, SS12F15G5 | SPDT, 19.8 mm frame, ⌀2.2 mm holes |
+| 1 | M3 × 10 socket head cap screw + M3 nut | M3 × 12 also fits; no washer |
+| ~500 mm | 26 AWG stranded hookup wire, 2 colours | 7 runs at ~60 mm |
+| 1 | USB-C cable to the radio | Type and length depend on the rig's CAT port |
+| ~23 g | PETG filament | Both printed parts, 4 walls / 25 % infill |
+
+Also needed but not part of the unit: a **USB-to-UART dongle** for flashing.
+The XIAO's native USB-C port runs in host mode to talk to the radio, so the
+console and the bootloader live on UART0 (GPIO43/44) — see
+[`esp32s3/README.md`](esp32s3/README.md).
+
+Consumables: hot glue (strain relief on the BAT pads), foam tape or CA
+(boost module and switch), isopropyl alcohol (antenna bay prep). Optional
+for HF noise: a clip-on ferrite for the USB lead and copper foil tape to
+line the lid over the boost.
+
+## Building the hardware
+
+The enclosure is two printed parts plus one bolt, closed size 57.2 × 47.2
+× 18.9 mm. [`enclosure/README.md`](enclosure/README.md) has the full
+step-by-step — layout, printing notes, numbered assembly, and a table of
+`.scad` parameters to tune if a part doesn't fit. The shape of the job:
+
+1. **Print** `enclosure/pocket_cat_base.stl` and
+   `enclosure/pocket_cat_lid.stl` in PETG at 0.2 mm, 4 walls, 25 % infill.
+   No supports. Regenerate them from `pocket_cat_case.scad` if you changed
+   a parameter.
+2. **Flash and smoke-test the XIAO first**, on the bench with the UART
+   dongle. The pads are awkward to reach once the board is seated in the lid
+   pocket component-side down.
+3. **Fit the base** — FPC antenna glued into the right bay, slide switch on
+   its two pegs, U.FL pigtail over the divider rib, cell laid in the left
+   bay loose (never glued, and never packed into the 1 mm swelling gap).
+4. **Fit the lid** — XIAO into the board pocket connector-first, boost
+   module into its cradle.
+5. **Wire it**, allowing 60 mm per run so the lid can lie flat for service.
+   The switch goes upstream of *both* loads: cell + → switch common →
+   XIAO BAT+ **and** boost Vin. That way switching off also kills the
+   boost, so its 5 V output can't fight a host's VBUS when you plug a PC
+   into the USB-C port to reflash. Twist every pair — loop area is what
+   radiates.
+6. **Close it** — lid skirt inside the base walls, M3 in from underneath,
+   snug only.
+
+The case is IP00: open USB aperture, open switch slot, unsealed parting
+line. Bag and bench use.
+
+## Building the software
 
 Firmware (see [`esp32s3/README.md`](esp32s3/README.md) for flashing details
 — the native USB-C port runs in host mode, so console lives on UART0):
@@ -87,6 +132,23 @@ iOS library — add as a Swift Package dependency (iOS 17+ / macOS 14+):
 ```
 
 then `import CATBridgeKit`.
+
+## Repository layout
+
+```
+esp32s3/            bridge side
+  firmware/         ESP-IDF (≥5.2) project for the XIAO ESP32-S3
+  test/host/        C unit + end-to-end simulation suites (gcc, ASan/UBSan)
+  test/tools/       radio_sim.py, ble_client.py, soak.py bench tools
+  docs/             implementation plan, BLE protocol spec (normative)
+Package.swift       Swift package manifest (swift-tools 6.0; iOS 17 / macOS 14)
+Sources/            CATBridgeCore (pure logic) + CATBridgeBLE (CoreBluetooth)
+Tests/
+BOM.md              bill of materials for one unit
+enclosure/          3D-printable case — pocket_cat_case.scad + base/lid STLs,
+                    with printing and assembly instructions
+docs/               system-level reports + library implementation plan
+```
 
 ## Testing
 
