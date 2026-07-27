@@ -60,10 +60,11 @@ esp32s3/            bridge side
   test/host/        C unit + end-to-end simulation suites (gcc, ASan/UBSan)
   test/tools/       radio_sim.py, ble_client.py, soak.py bench tools
   docs/             implementation plan, BLE protocol spec (normative)
-iOS/
-  CATBridgeKit/     Swift package: Core (pure logic) + BLE (CoreBluetooth)
-  docs/             library implementation plan
-docs/               system-level reports
+Package.swift       Swift package manifest (swift-tools 6.0; iOS 17 / macOS 14)
+Sources/            CATBridgeCore (pure logic) + CATBridgeBLE (CoreBluetooth)
+Tests/
+enclosure/          3D-printable case for the XIAO board (SCAD + STL)
+docs/               system-level reports + library implementation plan
 ```
 
 ## Building
@@ -77,15 +78,20 @@ idf.py set-target esp32s3
 idf.py build flash
 ```
 
-iOS library — add `iOS/CATBridgeKit` as a Swift Package dependency
-(iOS 17+ / macOS 14+) and `import CATBridgeKit`.
+iOS library — add as a Swift Package dependency (iOS 17+ / macOS 14+):
+
+```swift
+.package(url: "https://github.com/morria/pocket-cat.git", from: "1.0.0")
+```
+
+then `import CATBridgeKit`.
 
 ## Testing
 
 ```sh
 make -C esp32s3/test/host run            # C suites: unit + e2e simulation
 python -m pytest esp32s3/test/tools -q   # codec, radio_sim, pty rig tests
-swift test --package-path iOS/CATBridgeKit
+swift test
 ```
 
 The BLE wire format is pinned by a golden vector file byte-compared across

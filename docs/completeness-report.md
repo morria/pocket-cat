@@ -106,7 +106,7 @@ Swift sides), and stale-data protection (late-reply discard, BLE-absent purge).
 
 **Missing deliverables promised by the plan (non-blocking):**
 
-6. `iOS/docs/api-guide.md` (plan M4) — not written.
+6. `docs/api-guide.md` (plan M4; `iOS/docs/` at the time of this report) — not written.
 7. **DocC catalog** (plan §2) — public symbols have doc comments, but no
    `.docc` bundle or tutorial; the CI DocC step was never added.
 8. **Example app / compiling SwiftUI snippet** (M4 acceptance) — none.

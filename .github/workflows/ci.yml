@@ -20,14 +20,11 @@ jobs:
       - name: Golden vectors byte-identical across firmware and iOS package
         run: |
           cmp esp32s3/test/vectors/ctrlproto.json \
-              iOS/CATBridgeKit/Tests/CATBridgeCoreTests/Resources/ctrlproto.json
+              Tests/CATBridgeCoreTests/Resources/ctrlproto.json
 
   ios-library:
     name: CATBridgeKit (swift test + iOS build)
     runs-on: macos-15
-    defaults:
-      run:
-        working-directory: iOS/CATBridgeKit
     steps:
       - uses: actions/checkout@v4
       - name: Swift version

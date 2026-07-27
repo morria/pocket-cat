@@ -11,7 +11,7 @@ The division of labor is fixed by the system design
 protocol knowledge lives here**. This library therefore owns:
 
 1. The BLE link to the bridge (its GATT contract is normative in
-   [`esp32s3/docs/protocol.md`](../../esp32s3/docs/protocol.md)).
+   [`esp32s3/docs/protocol.md`](../esp32s3/docs/protocol.md)).
 2. The bridge control plane (CTRL TLV, STATUS, failsafe, baud negotiation).
 3. The CAT dialects (Yaesu ASCII for FT-891/FTX-1, Kenwood TS-480 subset for
    QMX) — command encoding, response parsing, polling.
@@ -52,22 +52,20 @@ What "as Apple pushes engineers to implement libraries" means concretely:
 ## 3. Package Layout
 
 ```
-iOS/
-├── docs/
-│   ├── implementation.md          # this file
-│   └── api-guide.md               # written at M4: integration guide for apps
-└── CATBridgeKit/
-    ├── Package.swift              # swift-tools 6.0; iOS 17 / macOS 14
-    ├── Sources/
-    │   ├── CATBridgeCore/         # ZERO-dependency pure logic (no CoreBluetooth)
-    │   │   ├── Ctrl/              #   TLV codec, Status, opcodes  (protocol.md §2–3)
-    │   │   ├── CAT/               #   dialects, parsers, values (Frequency, Mode…)
-    │   │   └── Session/           #   TransceiverSession actor, poller, cmd queue
-    │   └── CATBridgeBLE/          # CoreBluetooth transport (depends on Core)
-    ├── Tests/
-    │   ├── CATBridgeCoreTests/    # unit + scripted-radio integration tests
-    │   └── CATBridgeBLETests/     # CB delegate plumbing tests w/ fakes
-    └── Sources/CATBridgeCore/Documentation.docc/
+(repo root)
+├── Package.swift                  # swift-tools 6.0; iOS 17 / macOS 14
+├── Sources/
+│   ├── CATBridgeCore/             # ZERO-dependency pure logic (no CoreBluetooth)
+│   │   ├── Ctrl/                  #   TLV codec, Status, opcodes  (protocol.md §2–3)
+│   │   ├── CAT/                   #   dialects, parsers, values (Frequency, Mode…)
+│   │   └── Session/               #   TransceiverSession actor, poller, cmd queue
+│   └── CATBridgeBLE/              # CoreBluetooth transport (depends on Core)
+├── Tests/
+│   ├── CATBridgeCoreTests/        # unit + scripted-radio integration tests
+│   └── CATBridgeBLETests/         # CB delegate plumbing tests w/ fakes
+└── docs/
+    ├── ios-implementation.md      # this file
+    └── api-guide.md               # written at M4: integration guide for apps
 ```
 
 Two targets on purpose: **`CATBridgeCore` must not import CoreBluetooth** —

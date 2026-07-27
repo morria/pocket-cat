@@ -1,5 +1,5 @@
 {
-  "comment": "Golden wire-format vectors for the CTRL TLV protocol (esp32s3/docs/protocol.md). Single source of truth consumed by esp32s3/test/tools/test_catproto.py and embedded (byte-identical, CI-verified) in iOS/CATBridgeKit/Tests/CATBridgeCoreTests/Resources/ctrlproto.json.",
+  "comment": "Golden wire-format vectors for the CTRL TLV protocol (esp32s3/docs/protocol.md). Single source of truth consumed by esp32s3/test/tools/test_catproto.py and embedded (byte-identical, CI-verified) in Tests/CATBridgeCoreTests/Resources/ctrlproto.json.",
   "version": 1,
   "frames": [
     {
