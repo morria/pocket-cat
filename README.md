@@ -3,8 +3,10 @@
 Control your HF transceiver from an iPhone. Pocket Cat is a small
 BLE↔USB bridge — a Seeed XIAO ESP32-S3 plugged into the radio's USB CAT
 port — plus a Swift library (`CATBridgeKit`) that gives iOS apps a typed,
-observable model of the rig: frequency, mode, PTT, and the rest of the
-CAT surface, over Bluetooth LE.
+observable model of the rig: frequency, mode, PTT, RF power, a catalog of
+rig settings (gains, squelch, keyer speed, NB/NR, preamp, attenuator,
+filter width …), and Yaesu menu items, over Bluetooth LE — with raw CAT
+kept only as an escape hatch.
 
 Built for portable operation: radios like the FT-891 have full CAT
 control but no Bluetooth. Pocket Cat adds it without putting any radio

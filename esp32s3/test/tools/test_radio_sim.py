@@ -186,3 +186,42 @@ def test_serve_over_pty_roundtrip():
     os.write(master_fd, b"FA014250000;")  # set, no reply
     assert command(b"FA;") == b"FA014250000;"
     os.close(master_fd)
+
+
+# --- power / settings / menu (references: yaesu-cat-ft891.md, qmx-cat.md) ---
+
+def test_ft891_power_read_set():
+    r = Ft891()
+    assert r.feed(b"PC;") == b"PC100;"
+    assert r.feed(b"PC050;") == b""
+    assert r.feed(b"PC;") == b"PC050;"
+
+
+def test_ft891_settings_read_set():
+    r = Ft891()
+    assert r.feed(b"AG0;") == b"AG0128;"
+    assert r.feed(b"AG0200;") == b""
+    assert r.feed(b"AG0;") == b"AG0200;"
+    assert r.feed(b"KS;") == b"KS020;"
+    assert r.feed(b"BI1;") == b""
+    assert r.feed(b"BI;") == b"BI1;"
+    assert r.feed(b"SH0;") == b"SH012;"
+
+
+def test_ft891_menu_read_set_unknown():
+    r = Ft891()
+    assert r.feed(b"EX0301;") == b"EX03015;"
+    assert r.feed(b"EX03017;") == b""
+    assert r.feed(b"EX0301;") == b"EX03017;"
+    assert r.feed(b"EX9999;") == b"?;"
+
+
+def test_qmx_power_clamped_smeter_keyer():
+    r = Qmx()
+    assert r.feed(b"PC;") == b"PC005;"
+    assert r.feed(b"PC100;") == b""  # QMX clamps to its output ceiling
+    assert r.feed(b"PC;") == b"PC005;"
+    assert r.feed(b"SM0;") == b"SM00005;"  # TS-480 4-digit meter
+    assert r.feed(b"KS;") == b"KS020;"
+    assert r.feed(b"KS025;") == b""
+    assert r.feed(b"KS;") == b"KS025;"

@@ -12,6 +12,7 @@ public final class TransceiverState {
     public private(set) var mode: OperatingMode?
     public private(set) var isTransmitting: Bool = false
     public private(set) var sMeter: Int?
+    public private(set) var power: Int?
     public private(set) var bridge: BridgeHealth = BridgeHealth()
 
     public nonisolated init() {}
@@ -30,6 +31,7 @@ public final class TransceiverState {
         mode = snapshot.mode
         isTransmitting = snapshot.isTransmitting
         sMeter = snapshot.sMeter
+        power = snapshot.power
         bridge = snapshot.bridge
     }
 }

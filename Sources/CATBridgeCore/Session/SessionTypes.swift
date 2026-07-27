@@ -21,6 +21,7 @@ public enum CATBridgeError: Error, Sendable, Equatable {
     case timedOut(command: String)
     case unsupportedMode(OperatingMode)
     case unsupportedCapability(RadioCapabilities)
+    case unsupportedSetting(RigSetting)
     case statusVersionUnsupported(UInt8)
     case invalidArgument(String)
     case notReady
@@ -81,6 +82,9 @@ public struct TransceiverSnapshot: Sendable, Equatable {
     public var mode: OperatingMode?
     public var isTransmitting: Bool = false
     public var sMeter: Int?
+    /// RF output power, watts. Filled once at connect and after each
+    /// `setPower`; radios with no power control leave it nil.
+    public var power: Int?
     public var bridge: BridgeHealth = BridgeHealth()
 
     public init() {}

@@ -177,9 +177,12 @@ import Testing
         #expect(rxInfo.mode == .cw)
     }
 
-    @Test func capabilitiesExcludeWhatQMXLacks() {
-        #expect(!dialect.capabilities.contains(.rfPowerControl))
-        #expect(!dialect.capabilities.contains(.sMeter))
+    @Test func capabilitiesMatchQMXSubset() {
+        // qmx-cat.md: SM and PC are in the TS-480 subset (PC may be
+        // fixed/limited on hardware); there is no EX menu access.
+        #expect(dialect.capabilities.contains(.rfPowerControl))
+        #expect(dialect.capabilities.contains(.sMeter))
+        #expect(!dialect.capabilities.contains(.menuAccess))
         #expect(dialect.capabilities.contains(.ptt))
     }
 
@@ -243,5 +246,162 @@ import Testing
         _ = demux.ingest(Data(";".utf8))
         let frames = demux.ingest(Data("FA014074000;".utf8))
         #expect(frames.contains("FA014074000;"))
+    }
+}
+
+@Suite struct PowerControlDialectTests {
+    @Test func yaesuPowerEncodingAndParsing() throws {
+        let dialect = YaesuDialect.ft891
+        let read = try #require(dialect.readPower)
+        #expect(read.wire == "PC;")
+        #expect(try dialect.parse(reply: "PC100;", to: read) == .power(100))
+        #expect(try dialect.parse(reply: "PC005;", to: read) == .power(5))
+        #expect(try dialect.setPower(watts: 5).wire == "PC005;")
+        #expect(try dialect.setPower(watts: 100).wire == "PC100;")
+        #expect(dialect.powerRange == 5...100)
+    }
+
+    @Test(arguments: [0, 4, 101, -5])
+    func yaesuPowerRangeRejected(watts: Int) {
+        #expect(throws: (any Error).self) {
+            _ = try YaesuDialect.ft891.setPower(watts: watts)
+        }
+    }
+
+    @Test func yaesuMalformedPowerThrows() {
+        let dialect = YaesuDialect.ft891
+        let read = dialect.readPower!
+        for bad in ["PC;", "PC10;", "PC1000;", "PCxxx;", "PC100"] {
+            #expect(throws: (any Error).self) {
+                _ = try dialect.parse(reply: bad, to: read)
+            }
+        }
+    }
+
+    @Test func yaesuUnsolicitedPowerFrame() {
+        // Auto-Information can push PC when the operator turns the knob.
+        #expect(YaesuDialect.ft891.parseUnsolicited("PC050;") == .power(50))
+    }
+
+    @Test func kenwoodPowerEncodingAndParsing() throws {
+        let dialect = KenwoodDialect.qmx
+        let read = try #require(dialect.readPower)
+        #expect(read.wire == "PC;")
+        #expect(try dialect.parse(reply: "PC005;", to: read) == .power(5))
+        #expect(try dialect.setPower(watts: 5).wire == "PC005;")
+        #expect(throws: (any Error).self) {
+            _ = try dialect.setPower(watts: 0)
+        }
+    }
+
+    @Test func kenwoodSMeterTS480Width() throws {
+        let dialect = KenwoodDialect.qmx
+        let read = try #require(dialect.readSMeter)
+        #expect(read.wire == "SM0;")
+        #expect(try dialect.parse(reply: "SM00005;", to: read) == .sMeter(5))
+        #expect(try dialect.parse(reply: "SM0012;", to: read) == .sMeter(12))
+        #expect(throws: (any Error).self) {
+            _ = try dialect.parse(reply: "SM0;", to: read)
+        }
+    }
+}
+
+@Suite struct RigSettingDialectTests {
+    let yaesu = YaesuDialect.ft891
+
+    @Test(arguments: [
+        (RigSetting.afGain, "AG0;", "AG0128;", 128),
+        (.rfGain, "RG0;", "RG0255;", 255),
+        (.squelch, "SQ0;", "SQ0000;", 0),
+        (.micGain, "MG;", "MG050;", 50),
+        (.keyerSpeed, "KS;", "KS020;", 20),
+        (.breakIn, "BI;", "BI1;", 1),
+        (.noiseBlanker, "NB0;", "NB00;", 0),
+        (.noiseReduction, "NR0;", "NR01;", 1),
+        (.preamp, "PA0;", "PA01;", 1),
+        (.attenuator, "RA0;", "RA00;", 0),
+        (.narrow, "NA0;", "NA01;", 1),
+        (.filterWidth, "SH0;", "SH012;", 12),
+    ])
+    func yaesuSettingRoundTrip(setting: RigSetting, readWire: String,
+                               reply: String, value: Int) throws {
+        let read = try #require(yaesu.readSetting(setting))
+        #expect(read.wire == readWire)
+        #expect(try yaesu.parse(reply: reply, to: read)
+                == .setting(setting, value))
+        // Set encodes to exactly the reply the radio would echo.
+        #expect(try yaesu.setSetting(setting, to: value).wire == reply)
+    }
+
+    @Test func yaesuEverySettingSupported() {
+        for setting in RigSetting.allCases {
+            #expect(yaesu.readSetting(setting) != nil)
+            #expect(yaesu.settingRange(setting) != nil)
+        }
+    }
+
+    @Test func yaesuOutOfRangeSettingThrows() {
+        #expect(throws: (any Error).self) {
+            _ = try yaesu.setSetting(.afGain, to: 256)
+        }
+        #expect(throws: (any Error).self) {
+            _ = try yaesu.setSetting(.breakIn, to: 2)
+        }
+        #expect(throws: (any Error).self) {
+            _ = try yaesu.setSetting(.keyerSpeed, to: 3)
+        }
+    }
+
+    @Test func kenwoodOnlyKeyerSpeed() throws {
+        let dialect = KenwoodDialect.qmx
+        for setting in RigSetting.allCases where setting != .keyerSpeed {
+            #expect(dialect.readSetting(setting) == nil)
+            #expect(dialect.settingRange(setting) == nil)
+            #expect(throws: CATBridgeError.unsupportedSetting(setting)) {
+                _ = try dialect.setSetting(setting, to: 1)
+            }
+        }
+        let read = try #require(dialect.readSetting(.keyerSpeed))
+        #expect(read.wire == "KS;")
+        #expect(try dialect.parse(reply: "KS020;", to: read)
+                == .setting(.keyerSpeed, 20))
+        #expect(try dialect.setSetting(.keyerSpeed, to: 20).wire == "KS020;")
+    }
+}
+
+@Suite struct MenuDialectTests {
+    let yaesu = YaesuDialect.ft891
+
+    @Test func yaesuMenuReadAndSet() throws {
+        let read = try yaesu.readMenu(number: "0301")
+        #expect(read.wire == "EX0301;")
+        #expect(try yaesu.parse(reply: "EX03015;", to: read)
+                == .menu(number: "0301", value: "5"))
+        #expect(try yaesu.setMenu(number: "0301", value: "5").wire
+                == "EX03015;")
+        #expect(yaesu.capabilities.contains(.menuAccess))
+    }
+
+    @Test func yaesuMenuValidation() {
+        #expect(throws: (any Error).self) {
+            _ = try yaesu.readMenu(number: "03X1")
+        }
+        #expect(throws: (any Error).self) {
+            _ = try yaesu.readMenu(number: "01")
+        }
+        #expect(throws: (any Error).self) {
+            _ = try yaesu.setMenu(number: "0301", value: "5;EX")
+        }
+        #expect(throws: (any Error).self) {
+            _ = try yaesu.setMenu(number: "0301", value: "")
+        }
+    }
+
+    @Test func kenwoodHasNoMenuAccess() {
+        let dialect = KenwoodDialect.qmx
+        #expect(!dialect.capabilities.contains(.menuAccess))
+        #expect(throws: CATBridgeError.unsupportedCapability(.menuAccess)) {
+            _ = try dialect.readMenu(number: "0301")
+        }
     }
 }

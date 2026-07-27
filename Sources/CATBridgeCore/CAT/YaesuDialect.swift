@@ -24,7 +24,7 @@ public struct YaesuDialect: CATDialect {
 
     public var capabilities: RadioCapabilities {
         [.frequencyControl, .modeControl, .ptt, .sMeter, .keyerText,
-         .rfPowerControl, .autoInformation]
+         .rfPowerControl, .autoInformation, .menuAccess]
     }
 
     /// Yaesu Auto-Information: the rig pushes state frames unsolicited.
@@ -85,6 +85,100 @@ public struct YaesuDialect: CATDialect {
         CATCommand(wire: "SM0;", replyPrefix: "SM0")
     }
 
+    // MARK: - RF power (PC)
+
+    public var readPower: CATCommand? {
+        CATCommand(wire: "PC;", replyPrefix: "PC")
+    }
+
+    /// FT-891: 5–100 W. The FTX-1's limits are unconfirmed until hardware
+    /// bring-up (references/yaesu-cat-ftx1.md); until then it shares the
+    /// FT-891 range and the radio itself rejects what it can't do.
+    public var powerRange: ClosedRange<Int>? { 5...100 }
+
+    public func setPower(watts: Int) throws -> CATCommand {
+        guard let range = powerRange, range.contains(watts) else {
+            throw CATBridgeError.invalidArgument(
+                "power \(watts) W outside \(powerRange.map(String.init(describing:)) ?? "supported") range")
+        }
+        return CATCommand(wire: String(format: "PC%03d;", watts),
+                          replyPrefix: nil)
+    }
+
+    // MARK: - Settings (references/yaesu-cat-ft891.md command table)
+
+    struct SettingSpec {
+        let prefix: String // wire prefix incl. the fixed P1 digit, e.g. "AG0"
+        let digits: Int
+        let range: ClosedRange<Int>
+    }
+
+    static let settingSpecs: [RigSetting: SettingSpec] = [
+        .afGain: SettingSpec(prefix: "AG0", digits: 3, range: 0...255),
+        .rfGain: SettingSpec(prefix: "RG0", digits: 3, range: 0...255),
+        .squelch: SettingSpec(prefix: "SQ0", digits: 3, range: 0...100),
+        .micGain: SettingSpec(prefix: "MG", digits: 3, range: 0...100),
+        .keyerSpeed: SettingSpec(prefix: "KS", digits: 3, range: 4...60),
+        .breakIn: SettingSpec(prefix: "BI", digits: 1, range: 0...1),
+        .noiseBlanker: SettingSpec(prefix: "NB0", digits: 1, range: 0...1),
+        .noiseReduction: SettingSpec(prefix: "NR0", digits: 1, range: 0...1),
+        // Preamp steps and width indices are model-dependent; the range is
+        // the wire field's, and the radio answers `?;` for what it lacks.
+        .preamp: SettingSpec(prefix: "PA0", digits: 1, range: 0...2),
+        .attenuator: SettingSpec(prefix: "RA0", digits: 1, range: 0...1),
+        .narrow: SettingSpec(prefix: "NA0", digits: 1, range: 0...1),
+        .filterWidth: SettingSpec(prefix: "SH0", digits: 2, range: 0...21),
+    ]
+
+    public func readSetting(_ setting: RigSetting) -> CATCommand? {
+        guard let spec = Self.settingSpecs[setting] else { return nil }
+        return CATCommand(wire: "\(spec.prefix);", replyPrefix: spec.prefix)
+    }
+
+    public func setSetting(_ setting: RigSetting,
+                           to value: Int) throws -> CATCommand {
+        guard let spec = Self.settingSpecs[setting] else {
+            throw CATBridgeError.unsupportedSetting(setting)
+        }
+        guard spec.range.contains(value) else {
+            throw CATBridgeError.invalidArgument(
+                "\(setting.rawValue) \(value) outside \(spec.range)")
+        }
+        let digits = String(format: "%0\(spec.digits)d", value)
+        return CATCommand(wire: "\(spec.prefix)\(digits);", replyPrefix: nil)
+    }
+
+    public func settingRange(_ setting: RigSetting) -> ClosedRange<Int>? {
+        Self.settingSpecs[setting]?.range
+    }
+
+    // MARK: - Menu (EX)
+
+    /// FT-891 menu numbers are 4 digits (`EX0301;`). The FTX-1's numbering
+    /// is unconfirmed until bring-up, so length is validated loosely.
+    private func validatedMenuNumber(_ number: String) throws -> String {
+        guard (3...6).contains(number.count),
+              number.allSatisfy(\.isNumber) else {
+            throw CATBridgeError.invalidArgument(
+                "menu number must be 3-6 digits, got \"\(number)\"")
+        }
+        return number
+    }
+
+    public func readMenu(number: String) throws -> CATCommand {
+        let number = try validatedMenuNumber(number)
+        return CATCommand(wire: "EX\(number);", replyPrefix: "EX\(number)")
+    }
+
+    public func setMenu(number: String, value: String) throws -> CATCommand {
+        let number = try validatedMenuNumber(number)
+        guard !value.isEmpty, value.allSatisfy(\.isNumber) else {
+            throw CATBridgeError.invalidArgument(
+                "menu value must be digits, got \"\(value)\"")
+        }
+        return CATCommand(wire: "EX\(number)\(value);", replyPrefix: nil)
+    }
+
     public func setFrequency(_ frequency: Frequency) throws -> CATCommand {
         guard let digits = frequency.catDigits(width: 9) else {
             throw CATBridgeError.invalidArgument(
@@ -124,6 +218,20 @@ public struct YaesuDialect: CATDialect {
             return .sMeter(try parseSMeter(reply))
         case "IF":
             return .info(try parseInfo(reply))
+        case "PC":
+            return .power(try parsePower(reply))
+        case let prefix?:
+            if prefix.hasPrefix("EX") {
+                let number = String(prefix.dropFirst(2))
+                return .menu(number: number,
+                             value: try parseMenu(reply, number: number))
+            }
+            if let (setting, spec) = Self.settingSpecs.first(
+                where: { $0.value.prefix == prefix }) {
+                return .setting(setting,
+                                try parseSetting(reply, spec: spec.prefix))
+            }
+            return .raw(reply)
         default:
             return .raw(reply)
         }
@@ -138,6 +246,9 @@ public struct YaesuDialect: CATDialect {
         }
         if frame.hasPrefix("MD0"), let m = try? parseMode(frame) {
             return .mode(m)
+        }
+        if frame.hasPrefix("PC"), let w = try? parsePower(frame) {
+            return .power(w)
         }
         return nil
     }
@@ -169,6 +280,34 @@ public struct YaesuDialect: CATDialect {
             throw CATBridgeError.malformedResponse(reply)
         }
         return chars[2] != "0"
+    }
+
+    private func parsePower(_ reply: String) throws -> Int {
+        // PCnnn;
+        let chars = Array(reply)
+        guard chars.count == 6, reply.hasPrefix("PC"),
+              let watts = Int(String(chars[2...4]))
+        else { throw CATBridgeError.malformedResponse(reply) }
+        return watts
+    }
+
+    private func parseSetting(_ reply: String, spec prefix: String)
+        throws -> Int {
+        // <prefix><digits>;
+        guard reply.hasPrefix(prefix), reply.hasSuffix(";"),
+              let value = Int(reply.dropFirst(prefix.count).dropLast())
+        else { throw CATBridgeError.malformedResponse(reply) }
+        return value
+    }
+
+    private func parseMenu(_ reply: String, number: String) throws -> String {
+        // EX<number><value>;
+        let prefix = "EX\(number)"
+        let value = String(reply.dropFirst(prefix.count).dropLast())
+        guard reply.hasPrefix(prefix), reply.hasSuffix(";"),
+              !value.isEmpty, value.allSatisfy(\.isNumber)
+        else { throw CATBridgeError.malformedResponse(reply) }
+        return value
     }
 
     private func parseSMeter(_ reply: String) throws -> Int {

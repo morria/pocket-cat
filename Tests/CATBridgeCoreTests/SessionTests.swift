@@ -558,3 +558,132 @@ struct Rig {
         #expect(await eventTask.value == .usbDeviceUnsupported(.unsupported))
     }
 }
+
+@Suite struct PowerAndSettingsSessionTests {
+    @Test func powerFilledAtConnect() async throws {
+        let rig = Rig(radio: Ft891Personality(), radioID: .ft891)
+        try await rig.start()
+        let snap = await rig.snapshot()
+        #expect(snap.power == 100) // read once right after ready
+    }
+
+    @Test func setPowerRoundTrip() async throws {
+        let radio = Ft891Personality()
+        let rig = Rig(radio: radio, radioID: .ft891)
+        try await rig.start()
+
+        try await rig.session.setPower(watts: 50)
+        #expect(radio.power == 50)
+        let read = try await rig.session.readPower()
+        #expect(read == 50)
+        let snap = await rig.snapshot()
+        #expect(snap.power == 50)
+        let range = await rig.session.powerRange
+        #expect(range == 5...100)
+    }
+
+    @Test func setPowerOutOfRangeThrowsBeforeWire() async throws {
+        let rig = Rig(radio: Ft891Personality(), radioID: .ft891)
+        try await rig.start()
+        await #expect(throws: (any Error).self) {
+            try await rig.session.setPower(watts: 500)
+        }
+        let journal = await rig.transport.journal
+        #expect(!journal.contains(.cat("PC500;")))
+    }
+
+    @Test func qmxPowerReadAndClampedSet() async throws {
+        let radio = QmxPersonality()
+        let rig = Rig(radio: radio, radioID: .qmxCDC)
+        try await rig.start()
+
+        let snap = await rig.snapshot()
+        #expect(snap.power == 5) // filled at connect from PC005;
+        // The QMX clamps what it can't do; a re-read shows the truth.
+        try await rig.session.setPower(watts: 100)
+        #expect(radio.power == 5)
+        let read = try await rig.session.readPower()
+        #expect(read == 5)
+    }
+
+    @Test func qmxSMeterIsPolled() async throws {
+        let rig = Rig(radio: QmxPersonality(), radioID: .qmxCDC)
+        try await rig.start()
+        await rig.clock.pump(.seconds(2))
+        let snap = await rig.snapshot()
+        #expect(snap.sMeter == 5)
+    }
+
+    @Test func settingsRoundTripFT891() async throws {
+        let radio = Ft891Personality()
+        let rig = Rig(radio: radio, radioID: .ft891)
+        try await rig.start()
+
+        #expect(try await rig.session.read(.afGain) == 128)
+        try await rig.session.set(.afGain, to: 200)
+        #expect(radio.settings["AG0"]?.value == 200)
+        #expect(try await rig.session.read(.afGain) == 200)
+
+        try await rig.session.set(.keyerSpeed, to: 25)
+        #expect(try await rig.session.read(.keyerSpeed) == 25)
+        try await rig.session.set(.breakIn, to: 1)
+        #expect(try await rig.session.read(.breakIn) == 1)
+
+        let supported = await rig.session.supportedSettings
+        #expect(supported == Set(RigSetting.allCases))
+        let range = await rig.session.range(of: .afGain)
+        #expect(range == 0...255)
+    }
+
+    @Test func qmxKeyerSpeedOnlySetting() async throws {
+        let radio = QmxPersonality()
+        let rig = Rig(radio: radio, radioID: .qmxCDC)
+        try await rig.start()
+
+        try await rig.session.set(.keyerSpeed, to: 22)
+        #expect(radio.keyerSpeed == 22)
+        #expect(try await rig.session.read(.keyerSpeed) == 22)
+
+        let supported = await rig.session.supportedSettings
+        #expect(supported == [.keyerSpeed])
+        await #expect(throws:
+            CATBridgeError.unsupportedSetting(.afGain)) {
+            _ = try await rig.session.read(.afGain)
+        }
+        await #expect(throws:
+            CATBridgeError.unsupportedSetting(.afGain)) {
+            try await rig.session.set(.afGain, to: 100)
+        }
+    }
+
+    @Test func menuRoundTripFT891() async throws {
+        let radio = Ft891Personality()
+        let rig = Rig(radio: radio, radioID: .ft891)
+        try await rig.start()
+
+        #expect(try await rig.session.readMenuItem("0301") == "5")
+        try await rig.session.setMenuItem("0301", value: "7")
+        #expect(radio.menu["0301"] == "7")
+        #expect(try await rig.session.readMenuItem("0301") == "7")
+    }
+
+    @Test func menuUnknownNumberSurfacesRejection() async throws {
+        let rig = Rig(radio: Ft891Personality(), radioID: .ft891)
+        try await rig.start()
+        let session = rig.session
+        let task = Task { try await session.readMenuItem("9999") }
+        await rig.clock.pump(.seconds(2))
+        await #expect(throws: (any Error).self) {
+            _ = try await task.value
+        }
+    }
+
+    @Test func menuUnsupportedOnQMX() async throws {
+        let rig = Rig(radio: QmxPersonality(), radioID: .qmxCDC)
+        try await rig.start()
+        await #expect(throws:
+            CATBridgeError.unsupportedCapability(.menuAccess)) {
+            _ = try await rig.session.readMenuItem("0301")
+        }
+    }
+}

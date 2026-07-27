@@ -78,11 +78,21 @@ class Ft891(RadioPersonality):
 
     id_response = b"ID0650;"
 
+    #: level/switch settings by wire prefix: [value, digit width]
+    SETTINGS = {
+        b"AG0": (128, 3), b"RG0": (255, 3), b"SQ0": (0, 3), b"MG": (50, 3),
+        b"KS": (20, 3), b"BI": (0, 1), b"NB0": (0, 1), b"NR0": (0, 1),
+        b"PA0": (0, 1), b"RA0": (0, 1), b"NA0": (0, 1), b"SH0": (12, 2),
+    }
+
     def __init__(self) -> None:
         super().__init__()
         self.vfo_a = b"014074000"  # 9 digits, Hz
         self.vfo_b = b"007074000"
         self.mode = b"3"  # CW
+        self.power = 100
+        self.settings = {k: v[0] for k, v in self.SETTINGS.items()}
+        self.menu = {b"0301": b"5", b"0502": b"10"}  # EX store
 
     def respond(self, cmd: bytes) -> bytes:  # noqa: C901
         if cmd == b"ID;":
@@ -118,6 +128,31 @@ class Ft891(RadioPersonality):
             return b"AI0;"
         if cmd == b"SM0;":
             return b"SM0100;"
+        if cmd == b"PC;":
+            return b"PC%03d;" % self.power
+        if cmd.startswith(b"PC") and len(cmd) == 6 and cmd[2:5].isdigit():
+            self.power = int(cmd[2:5])
+            return b""
+        if cmd.startswith(b"EX") and len(cmd) >= 7:
+            number, value = cmd[2:6], cmd[6:-1]
+            if not number.isdigit():
+                return b"?;"
+            if not value:  # read
+                stored = self.menu.get(number)
+                return b"EX" + number + stored + b";" if stored else b"?;"
+            if not value.isdigit():
+                return b"?;"
+            self.menu[number] = value
+            return b""
+        # settings: longest prefix first so "NA0" is tried before "NA"-like
+        for prefix in sorted(self.settings, key=len, reverse=True):
+            digits = self.SETTINGS[prefix][1]
+            if cmd == prefix + b";":
+                return prefix + b"%0*d;" % (digits, self.settings[prefix])
+            body = cmd[len(prefix):-1]
+            if cmd.startswith(prefix) and cmd.endswith(b";") and body.isdigit():
+                self.settings[prefix] = int(body)
+                return b""
         return b"?;"  # Yaesu invalid-command reply
 
 
@@ -143,6 +178,9 @@ class Qmx(RadioPersonality):
         self.vfo_a = b"00014074000"  # 11 digits, Hz
         self.vfo_b = b"00007074000"
         self.mode = b"3"
+        self.power = 5
+        self.keyer_speed = 20
+        self.s_meter = 5
 
     def respond(self, cmd: bytes) -> bytes:
         if cmd == b"ID;":
@@ -169,6 +207,19 @@ class Qmx(RadioPersonality):
             return b""
         if cmd == b"RX;":
             self.tx = False
+            return b""
+        if cmd == b"SM0;":
+            return b"SM0%04d;" % self.s_meter  # TS-480 4-digit meter field
+        if cmd == b"PC;":
+            return b"PC%03d;" % self.power
+        if cmd.startswith(b"PC") and len(cmd) == 6 and cmd[2:5].isdigit():
+            # QMX output ceiling: the radio clamps what it can't do
+            self.power = min(int(cmd[2:5]), 5)
+            return b""
+        if cmd == b"KS;":
+            return b"KS%03d;" % self.keyer_speed
+        if cmd.startswith(b"KS") and len(cmd) == 6 and cmd[2:5].isdigit():
+            self.keyer_speed = int(cmd[2:5])
             return b""
         return b"?;"
 

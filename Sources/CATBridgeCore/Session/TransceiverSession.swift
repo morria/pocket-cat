@@ -179,6 +179,95 @@ public actor TransceiverSession {
         _ = try await execute(try dialect.keyerText(text))
     }
 
+    // MARK: - RF power
+
+    public func readPower() async throws -> Int {
+        let dialect = try readyDialect()
+        guard dialect.capabilities.contains(.rfPowerControl),
+              let command = dialect.readPower else {
+            throw CATBridgeError.unsupportedCapability(.rfPowerControl)
+        }
+        guard let reply = try await execute(command),
+              case let .power(watts) = try dialect.parse(reply: reply,
+                                                         to: command)
+        else { throw CATBridgeError.malformedResponse("PC") }
+        model.power = watts
+        publish()
+        return watts
+    }
+
+    public func setPower(watts: Int) async throws {
+        let dialect = try readyDialect()
+        guard dialect.capabilities.contains(.rfPowerControl) else {
+            throw CATBridgeError.unsupportedCapability(.rfPowerControl)
+        }
+        _ = try await execute(try dialect.setPower(watts: watts))
+        model.power = watts // optimistic; the radio may clamp — re-read to confirm
+        publish()
+    }
+
+    /// Valid watts for `setPower`; nil before `ready` or when the radio has
+    /// no power control.
+    public var powerRange: ClosedRange<Int>? { dialect?.powerRange }
+
+    // MARK: - Settings
+
+    /// The settings this radio supports; empty before `ready`.
+    public var supportedSettings: Set<RigSetting> {
+        guard let dialect else { return [] }
+        return Set(RigSetting.allCases.filter {
+            dialect.readSetting($0) != nil
+        })
+    }
+
+    /// Valid values for `setting`; nil when unsupported or before `ready`.
+    public func range(of setting: RigSetting) -> ClosedRange<Int>? {
+        dialect?.settingRange(setting)
+    }
+
+    public func read(_ setting: RigSetting) async throws -> Int {
+        let dialect = try readyDialect()
+        guard let command = dialect.readSetting(setting) else {
+            throw CATBridgeError.unsupportedSetting(setting)
+        }
+        guard let reply = try await execute(command),
+              case let .setting(_, value) = try dialect.parse(reply: reply,
+                                                              to: command)
+        else { throw CATBridgeError.malformedResponse(setting.rawValue) }
+        return value
+    }
+
+    public func set(_ setting: RigSetting, to value: Int) async throws {
+        let dialect = try readyDialect()
+        _ = try await execute(try dialect.setSetting(setting, to: value))
+    }
+
+    // MARK: - Menu items (Yaesu EX)
+
+    /// Read a menu item by its documented number (e.g. FT-891 `"0301"`).
+    /// Returns the radio's raw digit-string value.
+    public func readMenuItem(_ number: String) async throws -> String {
+        let dialect = try readyDialect()
+        guard dialect.capabilities.contains(.menuAccess) else {
+            throw CATBridgeError.unsupportedCapability(.menuAccess)
+        }
+        let command = try dialect.readMenu(number: number)
+        guard let reply = try await execute(command),
+              case let .menu(_, value) = try dialect.parse(reply: reply,
+                                                           to: command)
+        else { throw CATBridgeError.malformedResponse("EX\(number)") }
+        return value
+    }
+
+    public func setMenuItem(_ number: String, value: String) async throws {
+        let dialect = try readyDialect()
+        guard dialect.capabilities.contains(.menuAccess) else {
+            throw CATBridgeError.unsupportedCapability(.menuAccess)
+        }
+        _ = try await execute(try dialect.setMenu(number: number,
+                                                  value: value))
+    }
+
     /// Raw CAT escape hatch. PTT-on wires are refused while the failsafe is
     /// unarmed; retries are opt-in because raw commands may not be idempotent.
     public func rawCommand(_ wire: String, expectsReply: Bool,
@@ -337,6 +426,21 @@ public actor TransceiverSession {
         startPoller()
         setPhase(.ready)
         await pollOnce() // immediate first state fill
+        await refreshPowerOnce()
+    }
+
+    /// Power changes rarely and mostly through us, so it is read once per
+    /// (re)connect — not polled — then kept fresh by `setPower` and Yaesu
+    /// AI pushes. Best-effort: a radio that rejects `PC;` just leaves
+    /// `snapshot.power` nil.
+    private func refreshPowerOnce() async {
+        guard let dialect, dialect.capabilities.contains(.rfPowerControl),
+              let command = dialect.readPower,
+              let reply = try? await execute(command),
+              let value = try? dialect.parse(reply: reply, to: command),
+              case let .power(watts) = value else { return }
+        model.power = watts
+        publish()
     }
 
     /// Opt-in Auto-Information (§5.6): best-effort — if the radio rejects
@@ -616,7 +720,9 @@ public actor TransceiverSession {
             model.frequency = info.frequency
             if let mode = info.mode { model.mode = mode }
             if let tx = info.isTransmitting { model.isTransmitting = tx }
-        case .id, .raw:
+        case let .power(watts):
+            model.power = watts
+        case .id, .raw, .setting, .menu:
             break
         }
     }

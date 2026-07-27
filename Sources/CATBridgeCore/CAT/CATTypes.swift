@@ -35,6 +35,43 @@ public struct RadioCapabilities: OptionSet, Sendable {
     public static let rfPowerControl = RadioCapabilities(rawValue: 1 << 5)
     /// The radio can push state changes unsolicited (Yaesu Auto-Information).
     public static let autoInformation = RadioCapabilities(rawValue: 1 << 6)
+    /// The radio exposes its menu system over CAT (Yaesu `EX`).
+    public static let menuAccess = RadioCapabilities(rawValue: 1 << 7)
+}
+
+/// Integer-valued rig controls beyond the first-class frequency/mode/PTT/
+/// power surface. Dialects map each to its wire command; support is
+/// per-setting — query `TransceiverSession.supportedSettings` (or
+/// `CATDialect.readSetting(_:) != nil`) instead of assuming. Booleans are
+/// 0/1. Ranges come from `settingRange(_:)`; out-of-range sets throw before
+/// touching the radio.
+public enum RigSetting: String, Sendable, Equatable, Hashable, CaseIterable {
+    /// AF (audio) gain. Yaesu `AG0`.
+    case afGain
+    /// RF gain. Yaesu `RG0`.
+    case rfGain
+    /// Squelch level. Yaesu `SQ0`.
+    case squelch
+    /// Microphone gain. Yaesu `MG`.
+    case micGain
+    /// CW keyer speed, WPM. Yaesu `KS`; Kenwood/QMX `KS`.
+    case keyerSpeed
+    /// CW break-in on/off. Yaesu `BI`.
+    case breakIn
+    /// Noise blanker on/off. Yaesu `NB0`.
+    case noiseBlanker
+    /// Noise reduction on/off. Yaesu `NR0`.
+    case noiseReduction
+    /// Preamp / IPO selection. Yaesu `PA0` (0 = IPO; amp steps are
+    /// model-specific).
+    case preamp
+    /// RF attenuator on/off. Yaesu `RA0`.
+    case attenuator
+    /// Narrow filter on/off. Yaesu `NA0`.
+    case narrow
+    /// IF filter width index (mode-dependent table — see the radio's CAT
+    /// reference). Yaesu `SH0`.
+    case filterWidth
 }
 
 /// The concrete radio model driving dialect selection and capabilities.
@@ -89,5 +126,11 @@ public enum CATValue: Sendable, Equatable {
     case ptt(Bool)
     case sMeter(Int)
     case info(RigInfo)
+    /// RF output power, watts.
+    case power(Int)
+    case setting(RigSetting, Int)
+    /// A menu item (Yaesu `EX`): number as sent, value as the raw digit
+    /// string the radio returned.
+    case menu(number: String, value: String)
     case raw(String)
 }

@@ -4,3 +4,4 @@
 DerivedData/
 do-not-commit/
 .pytest_cache/
+.DS_Store

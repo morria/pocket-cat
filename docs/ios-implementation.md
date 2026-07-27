@@ -119,11 +119,22 @@ try await session.receive()
 let freq = try await session.readFrequency()
 try await session.send(keyerText: "CQ CQ DE …")   // where supported
 
+// 4b. RF power, typed settings, menu items — no raw CAT required
+try await session.setPower(watts: 50)             // validated per model
+let watts = try await session.readPower()         // snapshot.power tracks it
+try await session.set(.keyerSpeed, to: 25)        // RigSetting catalog:
+let af = try await session.read(.afGain)          //   gains, squelch, NB/NR,
+await session.supportedSettings                   //   preamp, atten, width …
+await session.range(of: .afGain)                  // 0...255 (dialect-typed)
+let v = try await session.readMenuItem("0301")    // Yaesu EX; raw digit value
+try await session.setMenuItem("0301", value: "5")
+
 // 5. Capabilities differ per radio — apps query, never guess
 if session.capabilities.contains(.rfPowerControl) { … }
+if session.capabilities.contains(.menuAccess) { … }     // Yaesu EX
 
-// 6. Escape hatch for power users: raw CAT with the same serialization
-let reply: Data = try await session.rawCommand("EX0301;", expectsReply: true)
+// 6. Escape hatch for the remaining CAT surface: same serialization
+let reply: Data = try await session.rawCommand("RM4;", expectsReply: true)
 ```
 
 Design points:
