@@ -12,7 +12,7 @@ let package = Package(
         .library(name: "FT891UI", targets: ["FT891UI"]),
     ],
     dependencies: [
-        .package(path: "../pocket-cat"),
+        .package(path: "../.."),
     ],
     targets: [
         // Radio semantics: menu catalog, command wrappers, profiles, sim.

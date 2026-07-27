@@ -1,14 +1,14 @@
 # Pocket Cat / CATBridgeKit — Integration Reference
 
 How this app talks to the FT-891: through the `CATBridgeKit` Swift package
-in `../pocket-cat` (BLE↔USB bridge on a XIAO ESP32-S3 plugged into the
+at the repo root (BLE↔USB bridge on a XIAO ESP32-S3 plugged into the
 radio's USB CAT port). This doc summarizes the library surface as of the
 version we build against, and what the app must layer on top.
 
 ## Topology
 
 ```
-ft891-cat app ──(SwiftUI/@Observable)── CATBridgeKit
+FT-891 app ────(SwiftUI/@Observable)── CATBridgeKit
                                             │ BLE GATT (bonded, encrypted)
                                     XIAO ESP32-S3 bridge (dumb pipe)
                                             │ USB host → CP2105
@@ -20,7 +20,7 @@ bytes, negotiates baud on command, and enforces a dead-man PTT failsafe.
 
 ## Package
 
-- `import CATBridgeKit` (SPM, `../pocket-cat`, swift-tools 6.0, iOS 17+ /
+- `import CATBridgeKit` (SPM, `../..`, swift-tools 6.0, iOS 17+ /
   macOS 14+, Swift 6 strict concurrency).
 - Targets: `CATBridgeCore` (pure logic, testable headless) +
   `CATBridgeBLE` (CoreBluetooth transport).

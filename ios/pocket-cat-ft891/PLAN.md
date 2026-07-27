@@ -1,7 +1,7 @@
 # FT-891 Pocket — Design, Implementation & Test Plan
 
 An iOS app for full CAT control of the Yaesu FT-891 over the Pocket Cat BLE
-bridge (`../pocket-cat`, `CATBridgeKit`). Native SwiftUI, HIG-conformant,
+bridge (`../..`, `CATBridgeKit`). Native SwiftUI, HIG-conformant,
 iOS 17+.
 
 Research grounding (read these first):
@@ -207,7 +207,7 @@ Three tabs + a persistent connection status affordance.
 
 | # | Deliverable | Acceptance |
 |---|---|---|
-| M0 | Xcode project, SPM dep on `../pocket-cat`, CI (build + test), app icon/theme scaffold; upstream PR: signed-EX validation fix | CI green |
+| M0 | Xcode project, SPM dep on `../..`, CI (build + test), app icon/theme scaffold; upstream PR: signed-EX validation fix | CI green |
 | M1 | FT891Kit: MenuCatalog (all 159, incl. signed/index codecs) + catalog generator check + raw-command wrappers (AC/RM/CF/ST/BS/RS…) | unit suite green; catalog matches docs |
 | M2 | FT891SimTransport (FT-891 personality incl. full EX table; start from pocket-cat's test `RadioPersonality`) + RigSession seam | full app runnable against sim; previews work |
 | M3 | Connection UX + Operate screen (freq/mode/band/meters) | end-to-end against sim |

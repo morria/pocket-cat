@@ -39,6 +39,24 @@ jobs:
             -skipMacroValidation \
             CODE_SIGNING_ALLOWED=NO
 
+  ft891-app:
+    name: FT-891 app (swift test + iOS build)
+    runs-on: macos-15
+    defaults:
+      run:
+        working-directory: ios/pocket-cat-ft891
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and test (FT891Kit + sim integration)
+        run: swift test
+      - name: iOS simulator build (FT891UI, SwiftUI surface)
+        run: |
+          xcodebuild build \
+            -scheme FT891UI \
+            -destination 'generic/platform=iOS Simulator' \
+            -skipMacroValidation \
+            CODE_SIGNING_ALLOWED=NO
+
   firmware-build:
     name: ESP-IDF build (esp32s3)
     runs-on: ubuntu-latest

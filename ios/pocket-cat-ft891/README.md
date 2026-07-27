@@ -1,7 +1,7 @@
 # FT-891 Pocket
 
 Native iOS control for the Yaesu FT-891 over the
-[Pocket Cat](../pocket-cat) BLE↔USB CAT bridge. SwiftUI, iOS 17+.
+[Pocket Cat](../..) BLE↔USB CAT bridge. SwiftUI, iOS 17+.
 
 - **Operate** — frequency (digit-drag tuning, direct entry), mode, band,
   S/PO/SWR/ALC meters, RF power, antenna-tuner cycle, split/clarifier/VFO
@@ -36,6 +36,9 @@ cd App && xcodegen generate      # create FT891.xcodeproj (needs xcodegen)
 open FT891.xcodeproj             # run the FT891App scheme
 ```
 
-The package depends on `../pocket-cat` by relative path — keep the two
-repos side by side. iCloud profile sync needs the iCloud capability signed
-with your team; without it the app falls back to on-device storage.
+This package lives inside the Pocket Cat repo at `ios/pocket-cat-ft891`
+and depends on the root package (`CATBridgeKit`) by the relative path
+`../..`, so it builds from a plain checkout with nothing else to clone.
+
+iCloud profile sync needs the iCloud capability signed with your team;
+without it the app falls back to on-device storage.

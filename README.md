@@ -133,6 +133,18 @@ iOS library — add as a Swift Package dependency (iOS 17+ / macOS 14+):
 
 then `import CATBridgeKit`.
 
+FT-891 app — a full iOS app built on the library lives in
+[`ios/pocket-cat-ft891`](ios/pocket-cat-ft891) (operate, all 159 menu
+items, profiles, and a built-in simulator that runs the whole app with no
+hardware). It depends on the root package by relative path, so a plain
+checkout is all you need:
+
+```sh
+cd ios/pocket-cat-ft891
+swift test                       # FT891Kit + sim-driven integration
+cd App && xcodegen generate      # then open FT891.xcodeproj
+```
+
 ## Repository layout
 
 ```
@@ -144,6 +156,9 @@ esp32s3/            bridge side
 Package.swift       Swift package manifest (swift-tools 6.0; iOS 17 / macOS 14)
 Sources/            CATBridgeCore (pure logic) + CATBridgeBLE (CoreBluetooth)
 Tests/
+ios/
+  pocket-cat-ft891/ FT-891 iOS app — FT891Kit (menu catalog, profiles,
+                    simulator) + FT891UI (SwiftUI) + xcodegen app shell
 BOM.md              bill of materials for one unit
 enclosure/          3D-printable case — pocket_cat_case.scad + base/lid STLs,
                     with printing and assembly instructions
