@@ -1,6 +1,6 @@
-# ESP32-S3 BLE↔USB CAT Bridge
+# Pocket Cat — ESP32-S3 BLE↔USB CAT Bridge
 
-Firmware for a Seeed XIAO ESP32S3 that bridges a BLE central (iOS app) to a
+Pocket Cat firmware for a Seeed XIAO ESP32S3 that bridges a BLE central (iOS app) to a
 transceiver's USB CAT interface (Yaesu FT-891, Yaesu FTX-1, QRP Labs QMX).
 The ESP32 is a transparent byte pipe; all CAT protocol logic lives on the
 remote. See [`docs/implementation.md`](docs/implementation.md) for the full
