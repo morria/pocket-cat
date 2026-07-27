@@ -687,3 +687,49 @@ struct Rig {
         }
     }
 }
+
+@Suite struct LineStateTests {
+    /// Hardware bring-up regression (FT-891 CAT RTS, menu 05-08): the rig
+    /// ignores every CAT byte until the host asserts RTS, so SET_LINE must
+    /// reach the bridge before the first ID; probe or a healthy radio scans
+    /// as "not responding".
+    @Test func rtsAssertedBeforeBaudProbe() async throws {
+        let rig = Rig(radio: Ft891Personality(), radioID: .ft891)
+        try await rig.start()
+
+        let journal = await rig.transport.journal
+        let lineIndex = journal.firstIndex {
+            if case .ctrl(CtrlOp.setLine.rawValue, let payload) = $0 {
+                return payload == Data([0x03]) // DTR | RTS
+            }
+            return false
+        }
+        let probeIndex = journal.firstIndex { $0 == .cat("ID;") }
+        let line = try #require(lineIndex)
+        let probe = try #require(probeIndex)
+        #expect(line < probe)
+    }
+
+    @Test func rtsReassertedOnUSBReattach() async throws {
+        let rig = Rig(radio: Ft891Personality(), radioID: .ft891)
+        try await rig.start()
+        let before = await rig.transport.journal.filter {
+            if case .ctrl(CtrlOp.setLine.rawValue, _) = $0 { return true }
+            return false
+        }.count
+
+        // Scripted detach (state 0 = waiting) then re-attach (1, ft891).
+        await rig.transport.injectCtrl(
+            CtrlFrame(op: CtrlOp.evtUSB.rawValue, payload: Data([0, 0])))
+        await rig.clock.pump(.milliseconds(200))
+        await rig.transport.injectCtrl(
+            CtrlFrame(op: CtrlOp.evtUSB.rawValue, payload: Data([1, 1])))
+        await rig.clock.pump(.seconds(2))
+
+        let after = await rig.transport.journal.filter {
+            if case .ctrl(CtrlOp.setLine.rawValue, _) = $0 { return true }
+            return false
+        }.count
+        #expect(after == before + 1)
+    }
+}

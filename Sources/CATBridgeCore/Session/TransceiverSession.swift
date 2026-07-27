@@ -405,6 +405,7 @@ public actor TransceiverSession {
 
         guard usbEnumerated else { return } // bridge up, no radio: stay here
 
+        await assertLineState()
         setPhase(.identifyingRadio)
         switch status.radioID {
         case .qmxCDC:
@@ -504,6 +505,17 @@ public actor TransceiverSession {
             : (idReply == candidate.idReply ? candidate.radioModel
                                             : .generic(idReply))
         publish()
+    }
+
+    /// The FT-891's `CAT RTS` menu (05-08, ENABLE by default) makes the
+    /// radio ignore ALL CAT until the host asserts RTS
+    /// (references/yaesu-cat-ft891.md) — without this, the baud probe hears
+    /// silence and reports "no radio" with a healthy rig attached. Assert
+    /// DTR+RTS on every (re)open; harmless on radios that ignore line state
+    /// (QMX's CDC-ACM). Best-effort: a NAK must not block enumeration-less
+    /// dialects, and the probe's own timeout still catches a truly dead rig.
+    private func assertLineState() async {
+        _ = try? await performCtrl(CtrlCommand.setLine(dtr: true, rts: true))
     }
 
     private func ensureFailsafeArmed() async throws {
@@ -840,7 +852,11 @@ public actor TransceiverSession {
             failsafeArmed = false // firmware cleared it on the detach
             emit(.usbRadioAttached(radio))
             if dialect != nil {
-                Task { try? await self.ensureFailsafeArmed() }
+                Task {
+                    // Re-open loses line state: re-assert RTS before CAT.
+                    await self.assertLineState()
+                    try? await self.ensureFailsafeArmed()
+                }
             }
         case .waiting, .error, .unknown:
             usbEnumerated = false
