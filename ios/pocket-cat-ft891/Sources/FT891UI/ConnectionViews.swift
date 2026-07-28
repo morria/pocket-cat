@@ -98,9 +98,17 @@ struct ConnectionSheet: View {
                                 Label(bridge.name ?? "Bridge",
                                       systemImage: "antenna.radiowaves.left.and.right")
                                 Spacer()
-                                Text("\(bridge.rssi) dB")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
+                                if bridge.isAlreadyConnected {
+                                    // Already connected to iOS, so it is
+                                    // not advertising and has no RSSI.
+                                    Text("Connected")
+                                        .font(.caption)
+                                        .foregroundStyle(.tint)
+                                } else if let rssi = bridge.rssi {
+                                    Text("\(rssi) dB")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
                             }
                         }
                     }
@@ -108,7 +116,10 @@ struct ConnectionSheet: View {
                     Text("Nearby Bridges")
                 } footer: {
                     Text("Bridges advertise as CATBridge-XXXX. Pairing is "
-                         + "required on first connect.")
+                         + "required on first connect. A bridge iOS is "
+                         + "already connected to stops advertising, so it "
+                         + "appears here as Connected rather than with a "
+                         + "signal reading.")
                 }
                 #endif
 

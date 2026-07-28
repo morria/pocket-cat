@@ -30,6 +30,21 @@ public enum BridgeGATT {
 public struct DiscoveredBridge: Sendable, Identifiable, Equatable {
     public let id: UUID
     public let name: String?
-    public let rssi: Int
+    /// Signal strength from the advertisement, or `nil` for a bridge iOS
+    /// already has connected — those are retrieved, not scanned, so there
+    /// is no advertisement to measure.
+    public let rssi: Int?
+    /// True when iOS is already connected to this bridge. The firmware
+    /// stops advertising while connected (esp32s3/docs/protocol.md §1), so
+    /// a scan can never see it — it has to be retrieved instead.
+    public let isAlreadyConnected: Bool
+
+    public init(id: UUID, name: String?, rssi: Int?,
+                isAlreadyConnected: Bool = false) {
+        self.id = id
+        self.name = name
+        self.rssi = rssi
+        self.isAlreadyConnected = isAlreadyConnected
+    }
 }
 #endif

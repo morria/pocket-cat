@@ -56,6 +56,7 @@ public final class CATBridgeCentral: NSObject, @unchecked Sendable {
             }
             self.queue.async {
                 self.scanContinuations[id] = continuation
+                self.emitAlreadyConnected()
                 self.startScanIfPoweredOn()
             }
         }
@@ -143,6 +144,27 @@ public final class CATBridgeCentral: NSObject, @unchecked Sendable {
         }
     }
 
+    /// Surface bridges iOS already has connected.
+    ///
+    /// Without this, discovery could never find a bonded bridge: the
+    /// firmware stops advertising while connected, so `scanForPeripherals`
+    /// reports nothing and the app scans forever. That is why "forget this
+    /// device" appeared to be the only way to reconnect — it tore down the
+    /// system's link, and the bridge started advertising again.
+    private func emitAlreadyConnected() {
+        guard manager.state == .poweredOn else { return }
+        for peripheral in manager.retrieveConnectedPeripherals(
+            withServices: [BridgeGATT.service]) {
+            let bridge = DiscoveredBridge(id: peripheral.identifier,
+                                          name: peripheral.name,
+                                          rssi: nil,
+                                          isAlreadyConnected: true)
+            for continuation in scanContinuations.values {
+                continuation.yield(bridge)
+            }
+        }
+    }
+
     private func startScanIfPoweredOn() {
         guard manager.state == .poweredOn,
               !scanContinuations.isEmpty else { return }
@@ -158,6 +180,9 @@ extension CATBridgeCentral: CBCentralManagerDelegate {
         case .poweredOn:
             for waiter in poweredOnWaiters { waiter.resume() }
             poweredOnWaiters.removeAll()
+            // Retrieval needs the radio powered on, so a scan that started
+            // before Bluetooth was ready must re-check now.
+            emitAlreadyConnected()
             startScanIfPoweredOn()
         case .poweredOff, .unauthorized, .unsupported:
             let reason = "\(central.state)"
@@ -179,7 +204,8 @@ extension CATBridgeCentral: CBCentralManagerDelegate {
             id: peripheral.identifier,
             name: (advertisementData[CBAdvertisementDataLocalNameKey]
                    as? String) ?? peripheral.name,
-            rssi: RSSI.intValue)
+            rssi: RSSI.intValue,
+            isAlreadyConnected: false)
         for continuation in scanContinuations.values {
             continuation.yield(bridge)
         }
