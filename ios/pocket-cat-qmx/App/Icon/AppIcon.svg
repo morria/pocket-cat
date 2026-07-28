@@ -24,17 +24,29 @@
 
   <rect width="1024" height="1024" fill="url(#bg)"/>
 
-  <!-- bandscope: capsule bars, cool to warm, tuned signal peaking at centre -->
+  <!-- VFO dial: capsule ticks sweeping cool to warm, cream index mark at 12 -->
   <g>
-    <rect x="132" y="604" width="56" height="68"  rx="28" fill="#5cb8b2" opacity="0.88"/>
-    <rect x="220" y="552" width="56" height="120" rx="28" fill="#5cb8b2"/>
-    <rect x="308" y="500" width="56" height="172" rx="28" fill="#74b48c"/>
-    <rect x="396" y="388" width="56" height="284" rx="28" fill="#f0e6d2"/>
-    <rect x="484" y="242" width="56" height="430" rx="28" fill="#f0e6d2"/>
-    <rect x="572" y="436" width="56" height="236" rx="28" fill="#f0e6d2"/>
-    <rect x="660" y="496" width="56" height="176" rx="28" fill="#e8c765"/>
-    <rect x="748" y="564" width="56" height="108" rx="28" fill="#e8c765"/>
-    <rect x="836" y="584" width="56" height="88"  rx="28" fill="#e08e6f" opacity="0.88"/>
+    <path d="M 512.0 290.0 L 512.0 176.0" stroke="#f0e6d2" stroke-width="42" stroke-linecap="round"/>
+    <path d="M 580.6 250.9 L 600.4 190.0" stroke="#5cb8b2" stroke-width="34" stroke-linecap="round"/>
+    <path d="M 642.5 282.4 L 680.1 230.6" stroke="#5cb8b2" stroke-width="34" stroke-linecap="round"/>
+    <path d="M 691.6 331.5 L 743.4 293.9" stroke="#5cb8b2" stroke-width="34" stroke-linecap="round"/>
+    <path d="M 723.1 393.4 L 784.0 373.6" stroke="#5cb8b2" stroke-width="34" stroke-linecap="round"/>
+    <path d="M 734.0 462.0 L 798.0 462.0" stroke="#74b48c" stroke-width="34" stroke-linecap="round"/>
+    <path d="M 723.1 530.6 L 784.0 550.4" stroke="#74b48c" stroke-width="34" stroke-linecap="round"/>
+    <path d="M 691.6 592.5 L 743.4 630.1" stroke="#74b48c" stroke-width="34" stroke-linecap="round"/>
+    <path d="M 642.5 641.6 L 680.1 693.4" stroke="#74b48c" stroke-width="34" stroke-linecap="round"/>
+    <path d="M 580.6 673.1 L 600.4 734.0" stroke="#74b48c" stroke-width="34" stroke-linecap="round"/>
+    <path d="M 512.0 684.0 L 512.0 748.0" stroke="#e8c765" stroke-width="34" stroke-linecap="round"/>
+    <path d="M 443.4 673.1 L 423.6 734.0" stroke="#e8c765" stroke-width="34" stroke-linecap="round"/>
+    <path d="M 381.5 641.6 L 343.9 693.4" stroke="#e8c765" stroke-width="34" stroke-linecap="round"/>
+    <path d="M 332.4 592.5 L 280.6 630.1" stroke="#e8c765" stroke-width="34" stroke-linecap="round"/>
+    <path d="M 300.9 530.6 L 240.0 550.4" stroke="#e8c765" stroke-width="34" stroke-linecap="round"/>
+    <path d="M 290.0 462.0 L 226.0 462.0" stroke="#e08e6f" stroke-width="34" stroke-linecap="round"/>
+    <path d="M 300.9 393.4 L 240.0 373.6" stroke="#e08e6f" stroke-width="34" stroke-linecap="round"/>
+    <path d="M 332.4 331.5 L 280.6 293.9" stroke="#e08e6f" stroke-width="34" stroke-linecap="round"/>
+    <path d="M 381.5 282.4 L 343.9 230.6" stroke="#e08e6f" stroke-width="34" stroke-linecap="round"/>
+    <path d="M 443.4 250.9 L 423.6 190.0" stroke="#e08e6f" stroke-width="34" stroke-linecap="round"/>
+    <circle cx="512" cy="462" r="90" fill="none" stroke="#f0e6d2" stroke-width="32"/>
   </g>
 
   <text x="512" y="886" filter="url(#txtshadow)"
