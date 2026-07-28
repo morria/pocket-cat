@@ -15,6 +15,8 @@ public struct RootView: View {
                 .tabItem { Label("Operate", systemImage: "dial.medium") }
             NavigationStack { SpectrumView() }
                 .tabItem { Label("Spectrum", systemImage: "waveform") }
+            NavigationStack { CWMessagesView() }
+                .tabItem { Label("CW", systemImage: "text.bubble") }
             NavigationStack { MenuBrowserView() }
                 .tabItem {
                     Label("Menu", systemImage: "slider.horizontal.3")

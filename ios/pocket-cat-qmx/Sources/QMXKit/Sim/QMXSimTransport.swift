@@ -214,6 +214,10 @@ public struct QMXSimRig: Sendable {
     public var swrHundredths = 121       // 1.21:1, empty reply while RX
     public var keyerSpeed = 20
     public var iqMode = false // Q9
+    /// Pending text for the CW decoder (`TB`). Tests and the simulated
+    /// band push into this; `KY` also feeds it, standing in for the radio
+    /// decoding its own sidetone.
+    public var decodeBuffer = ""
 
     /// A menu-tree node; grids carry one value per column.
     public struct SimNode: Sendable {
@@ -372,7 +376,13 @@ public struct QMXSimRig: Sendable {
         case "SA;": return "SA\(agcDB);"
         case "SW;": return transmitting ? "SW\(swrHundredths);" : "SW;"
         case "VN;": return "VN1_02_006QMX;"
-        case "TB;": return "TB000;"
+        case "TB;":
+            // TB<keyer state><2-digit count><text>; — the radio hands over
+            // at most its 40-char buffer and drops what it gives us.
+            let chunk = String(decodeBuffer.prefix(40))
+            decodeBuffer.removeFirst(chunk.count)
+            return "TB\(transmitting ? 1 : 0)"
+                + String(format: "%02d", chunk.count) + chunk + ";"
         default:
             return respondPrefixed(to: cmd)
         }
@@ -423,7 +433,13 @@ public struct QMXSimRig: Sendable {
             keyerSpeed = wpm
             return nil
         }
-        if body.hasPrefix("KY ") { return nil }
+        if body.hasPrefix("KY ") {
+            // The real radio decodes its own sidetone, so keyed text comes
+            // back round through TB. Instant here; on the air it arrives at
+            // the keyer's speed.
+            decodeBuffer += String(body.dropFirst(3)).uppercased() + " "
+            return nil
+        }
         if body.hasPrefix("PC"), body.count > 2 { return "?;" } // GET-only
         if body.hasPrefix("FR") || body.hasPrefix("FT"), body.count == 3 {
             split = body.last == "2"
