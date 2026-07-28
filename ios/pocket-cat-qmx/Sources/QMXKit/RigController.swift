@@ -265,10 +265,17 @@ public final class RigController {
 
     private func drainPendingFrequency() async {
         defer { frequencySendInFlight = false }
+        var landed: Frequency?
         while let target = pendingFrequency {
             pendingFrequency = nil
             guard let session else { return }
             try? await session.setFrequency(target)
+            landed = target
+        }
+        // Record where tuning settled, not every intermediate value a
+        // digit-drag produced.
+        if let landed {
+            StationMemory.shared.noteVisit(hz: landed.hertz, mode: state?.mode)
         }
     }
 

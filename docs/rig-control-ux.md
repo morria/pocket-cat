@@ -1,6 +1,8 @@
 # Rig Control UX — Design Pass
 
-**Status:** proposal, nothing built · **Scope:** `ios/pocket-cat-ft891` and
+**Status:** §4.1–4.3 built in both apps (band bar with stacking, memories,
+recents); §3 and §4.4 still proposals, blocked on CAT formats this repo
+does not yet document · **Scope:** `ios/pocket-cat-ft891` and
 `ios/pocket-cat-qmx`
 
 Three questions drive this: how to kill an unwanted whistle in one gesture,

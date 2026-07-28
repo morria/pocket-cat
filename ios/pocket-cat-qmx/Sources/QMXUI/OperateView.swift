@@ -9,6 +9,7 @@ struct OperateView: View {
     @Environment(RigController.self) private var rig
     @State private var transmitting = false
     @State private var showingWSPR = false
+    @State private var showingMemories = false
     @State private var showingSettings = false
 
     var body: some View {
@@ -16,6 +17,7 @@ struct OperateView: View {
             VStack(spacing: 16) {
                 FrequencyDisplay()
                 modeStrip
+                BandBar()
                 MeterCluster()
                 controlsGrid
                 pttButton
@@ -30,6 +32,9 @@ struct OperateView: View {
             ToolbarItem(placement: .principal) { ConnectionStatusButton() }
             ToolbarItem(placement: .primaryAction) {
                 Menu {
+                    Button("Memories…", systemImage: "bookmark") {
+                        showingMemories = true
+                    }
                     Button("WSPR Beacon…", systemImage: "dot.radiowaves.up.forward") {
                         showingWSPR = true
                     }
@@ -42,7 +47,16 @@ struct OperateView: View {
             }
         }
         .sheet(isPresented: $showingWSPR) { WSPRView() }
+        .sheet(isPresented: $showingMemories) { MemoriesView() }
         .sheet(isPresented: $showingSettings) { AppSettingsView() }
+        .overlay {
+            if rig.state?.isTransmitting ?? false {
+                RoundedRectangle(cornerRadius: 0)
+                    .strokeBorder(Color.red.opacity(0.8), lineWidth: 4)
+                    .ignoresSafeArea()
+                    .allowsHitTesting(false)
+            }
+        }
         .task { await rig.refreshSecondaryState() }
     }
 

@@ -9,6 +9,7 @@ struct OperateView: View {
     @Environment(RigController.self) private var rig
     @State private var showingTuneConfirm = false
     @State private var showingSettings = false
+    @State private var showingMemories = false
     @State private var powerEditing: Double?
 
     private var isTransmitting: Bool { rig.state?.isTransmitting ?? false }
@@ -18,7 +19,7 @@ struct OperateView: View {
             VStack(spacing: 18) {
                 FrequencyDisplay()
                 ModeStrip()
-                BandStrip()
+                BandBar()
 
                 if isTransmitting || rig.isTuning {
                     TXMeterCluster()
@@ -43,12 +44,20 @@ struct OperateView: View {
         .toolbar {
             ToolbarItem(placement: .principal) { ConnectionStatusButton() }
             ToolbarItem(placement: .primaryAction) {
-                Button("App Settings", systemImage: "gear") {
-                    showingSettings = true
+                Menu {
+                    Button("Memories…", systemImage: "bookmark") {
+                        showingMemories = true
+                    }
+                    Button("App Settings…", systemImage: "gear") {
+                        showingSettings = true
+                    }
+                } label: {
+                    Label("More", systemImage: "ellipsis.circle")
                 }
             }
         }
         .sheet(isPresented: $showingSettings) { AppSettingsView() }
+        .sheet(isPresented: $showingMemories) { MemoriesView() }
         .overlay {
             if isTransmitting {
                 RoundedRectangle(cornerRadius: 0)
@@ -155,28 +164,6 @@ struct ModeStrip: View {
                     .font(.footnote.weight(selected ? .bold : .regular))
                     .buttonStyle(.bordered)
                     .tint(selected ? .accentColor : .secondary)
-                }
-            }
-            .padding(.horizontal)
-        }
-    }
-}
-
-struct BandStrip: View {
-    @Environment(RigController.self) private var rig
-
-    var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 6) {
-                ForEach(FT891Band.allCases) { band in
-                    Button(band.title) {
-                        Task { await rig.selectBand(band) }
-                    }
-                    .font(.caption)
-                    .buttonStyle(.borderless)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 5)
-                    .background(.thinMaterial, in: Capsule())
                 }
             }
             .padding(.horizontal)
