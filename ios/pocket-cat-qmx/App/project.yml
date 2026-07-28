@@ -20,7 +20,10 @@ targets:
     info:
       path: QMXApp/Info.plist
       properties:
-        CFBundleDisplayName: QMX
+        CFBundleDisplayName: Pocket Cat QMX
+        # Declared so TestFlight doesn't ask on every upload: the app uses
+        # only Apple's BLE stack, no non-exempt cryptography.
+        ITSAppUsesNonExemptEncryption: false
         UILaunchScreen: {}
         NSLocationWhenInUseUsageDescription: >-
           QMX uses your location once, when you tap Use Current Location,
@@ -49,6 +52,9 @@ targets:
     settings:
       base:
         SWIFT_VERSION: "6.0"
+        PRODUCT_BUNDLE_IDENTIFIER: com.w2asm.pocket-cat-qmx
+        MARKETING_VERSION: "1.0"
+        CURRENT_PROJECT_VERSION: "1"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         TARGETED_DEVICE_FAMILY: "1"
         INFOPLIST_KEY_UIUserInterfaceStyle: Automatic
