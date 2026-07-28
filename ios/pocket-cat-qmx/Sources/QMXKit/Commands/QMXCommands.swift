@@ -44,6 +44,55 @@ public enum QMXMode: Character, CaseIterable, Sendable, Identifiable {
     }
 }
 
+extension QMXMode {
+    /// The QMX's four modes are really two modes with two tone senses.
+    /// Reverse swaps mark and space (spectral inversion) — the thing you
+    /// flip when a signal tunes in correctly but decodes as gibberish, or
+    /// when the other station is set up the other way round.
+    public enum Family: String, Sendable, CaseIterable, Identifiable {
+        case cw
+        case digi
+
+        public var id: String { rawValue }
+
+        public var title: String {
+            switch self {
+            case .cw: "CW"
+            case .digi: "DIGI"
+            }
+        }
+    }
+
+    public var family: Family {
+        switch self {
+        case .cw, .cwReverse: .cw
+        case .digi, .fskReverse: .digi
+        }
+    }
+
+    public var isReversed: Bool {
+        switch self {
+        case .cwReverse, .fskReverse: true
+        case .cw, .digi: false
+        }
+    }
+
+    /// The mode for a family and tone sense.
+    public static func mode(family: Family, reversed: Bool) -> QMXMode {
+        switch (family, reversed) {
+        case (.cw, false): .cw
+        case (.cw, true): .cwReverse
+        case (.digi, false): .digi
+        case (.digi, true): .fskReverse
+        }
+    }
+
+    /// The same mode with the tone sense flipped.
+    public var reversedCounterpart: QMXMode {
+        QMXMode.mode(family: family, reversed: !isReversed)
+    }
+}
+
 public enum Sideband: String, Sendable, CaseIterable {
     case usb = "USB"
     case lsb = "LSB"

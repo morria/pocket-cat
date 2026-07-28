@@ -64,13 +64,45 @@ struct OperateView: View {
 
     private var modeStrip: some View {
         VStack(spacing: 8) {
+            // Two modes × two tone senses, not four equal modes: reverse is
+            // an A/B you flip while listening, so it gets its own control.
             HStack(spacing: 8) {
-                ForEach(QMXMode.allCases) { mode in
-                    Button(mode.title) {
-                        Task { await rig.setMode(mode) }
+                ForEach(QMXMode.Family.allCases) { family in
+                    Button(family.title) {
+                        Task { await rig.setModeFamily(family) }
                     }
                     .buttonStyle(.bordered)
-                    .tint(rig.currentMode == mode ? .accentColor : .secondary)
+                    .tint(rig.currentMode?.family == family
+                          ? .accentColor : .secondary)
+                }
+
+                Button {
+                    Task {
+                        await rig.setReversed(
+                            !(rig.currentMode?.isReversed ?? false))
+                    }
+                } label: {
+                    Text("REV")
+                        .font(.callout.weight(
+                            rig.currentMode?.isReversed == true
+                                ? .bold : .regular))
+                }
+                .buttonStyle(.bordered)
+                .tint(rig.currentMode?.isReversed == true
+                      ? .orange : .secondary)
+                .disabled(rig.currentMode == nil)
+                .accessibilityLabel("Reverse")
+                .accessibilityValue(rig.currentMode?.isReversed == true
+                                    ? "On" : "Off")
+                .accessibilityHint("Swaps mark and space. Try this when a "
+                                   + "signal tunes in but decodes as "
+                                   + "gibberish.")
+
+                if let mode = rig.currentMode {
+                    Text(mode.title)
+                        .font(.caption.monospaced())
+                        .foregroundStyle(.secondary)
+                        .accessibilityHidden(true)
                 }
             }
             Picker("Sideband", selection: Binding(

@@ -293,6 +293,22 @@ public final class RigController {
         catch { notify(friendlyMessage(for: error)) }
     }
 
+    /// Switch mode family, keeping the current tone sense. Picking CW while
+    /// reversed lands on CW-R, not CW.
+    public func setModeFamily(_ family: QMXMode.Family) async {
+        let reversed = currentMode?.isReversed ?? false
+        await setMode(QMXMode.mode(family: family, reversed: reversed))
+    }
+
+    /// Flip mark/space without changing which mode you're in — the A/B you
+    /// do while listening to a signal that won't decode.
+    public func setReversed(_ reversed: Bool) async {
+        guard let mode = currentMode, mode.isReversed != reversed else {
+            return
+        }
+        await setMode(mode.reversedCounterpart)
+    }
+
     public func setSideband(_ new: Sideband) async {
         guard let session else { return }
         do {
