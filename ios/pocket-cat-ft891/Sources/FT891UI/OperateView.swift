@@ -117,7 +117,7 @@ struct OperateView: View {
             }
             .buttonStyle(.bordered)
             .tint(rig.isTuning ? .orange : nil)
-            .disabled(rig.isTuning)
+            .disabled(rig.isTuning || isTransmitting)
             .confirmationDialog(
                 "Start antenna tune cycle?",
                 isPresented: $showingTuneConfirm,
@@ -143,6 +143,7 @@ struct OperateView: View {
             }
             .buttonStyle(.bordered)
             .tint(rig.splitState == .off ? nil : .blue)
+            .disabled(isTransmitting)
 
             Button {
                 Task { await rig.swapVFOs() }
@@ -151,6 +152,7 @@ struct OperateView: View {
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(.bordered)
+            .disabled(isTransmitting)
         }
         .font(.callout)
         .padding(.horizontal)
@@ -164,17 +166,38 @@ struct ModeStrip: View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 6) {
                 ForEach(FT891Mode.all, id: \.self) { mode in
-                    let selected = rig.state?.mode == mode
-                    Button(FT891Mode.title(mode)) {
+                    ModeChip(title: FT891Mode.title(mode),
+                             selected: rig.state?.mode == mode) {
                         Task { await rig.setMode(mode) }
                     }
-                    .font(.footnote.weight(selected ? .bold : .regular))
-                    .buttonStyle(.bordered)
-                    .tint(selected ? .accentColor : .secondary)
                 }
             }
             .padding(.horizontal)
         }
+    }
+}
+
+/// A mode button. Selection is carried by fill *and* weight, not colour
+/// alone, and the target meets the 44 pt minimum.
+private struct ModeChip: View {
+    let title: String
+    let selected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Group {
+            if selected {
+                Button(title, action: action)
+                    .buttonStyle(.borderedProminent)
+            } else {
+                Button(title, action: action)
+                    .buttonStyle(.bordered)
+            }
+        }
+        .font(.footnote.weight(selected ? .bold : .regular))
+        .tint(selected ? .accentColor : .secondary)
+        .frame(minHeight: 44)
+        .accessibilityAddTraits(selected ? [.isSelected] : [])
     }
 }
 
@@ -184,6 +207,7 @@ struct ModeStrip: View {
 struct PTTButton: View {
     @Environment(RigController.self) private var rig
     @State private var pressed = false
+    @ScaledMetric(relativeTo: .headline) private var minHeight: CGFloat = 56
 
     private var isTransmitting: Bool { rig.state?.isTransmitting ?? false }
 
@@ -192,7 +216,8 @@ struct PTTButton: View {
             .font(.headline)
             .foregroundStyle(.white)
             .frame(maxWidth: .infinity)
-            .frame(height: 56)
+            .frame(minHeight: minHeight)
+            .padding(.vertical, 4)
             .background(
                 isTransmitting ? Color.red : Color.accentColor,
                 in: RoundedRectangle(cornerRadius: 14))

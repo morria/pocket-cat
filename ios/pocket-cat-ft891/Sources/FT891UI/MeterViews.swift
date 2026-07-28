@@ -39,6 +39,34 @@ struct SMeterView: View {
     }
 }
 
+/// Both meter sets in one fixed-height slot.
+///
+/// The RX and TX clusters are different heights, so swapping them directly
+/// reflowed everything below — including the PTT button, which moved out
+/// from under the operator's thumb at the exact moment they were holding
+/// it. The panel reserves the taller of the two and cross-fades inside it,
+/// so keying changes what the screen says and never where anything is.
+struct MeterPanel: View {
+    @Environment(RigController.self) private var rig
+    let isTransmitting: Bool
+
+    @ScaledMetric(relativeTo: .body) private var height: CGFloat = 74
+
+    var body: some View {
+        ZStack {
+            if isTransmitting {
+                TXMeterCluster()
+                    .transition(.opacity)
+            } else {
+                SMeterView(raw: rig.state?.sMeter)
+                    .transition(.opacity)
+            }
+        }
+        .frame(height: height, alignment: .top)
+        .animation(.easeInOut(duration: 0.18), value: isTransmitting)
+    }
+}
+
 struct TXMeterCluster: View {
     @Environment(RigController.self) private var rig
 

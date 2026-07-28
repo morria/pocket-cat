@@ -8,6 +8,7 @@ import SwiftUI
 struct FrequencyDisplay: View {
     @Environment(RigController.self) private var rig
     @State private var showingKeypad = false
+    @ScaledMetric(relativeTo: .largeTitle) private var digitSize: CGFloat = 44
 
     var body: some View {
         let hz = rig.state?.frequency?.hertz ?? 0
@@ -33,9 +34,17 @@ struct FrequencyDisplay: View {
             .accessibilityElement()
             .accessibilityLabel("Frequency")
             .accessibilityValue(Frequency(hz: hz).description)
+            .accessibilityHint("Drag a digit up or down to tune it, or "
+                               + "double-tap to enter a frequency.")
             .accessibilityAdjustableAction { direction in
                 rig.step(by: direction == .increment ? 1000 : -1000)
             }
+
+            // Digit-drag tuning is invisible otherwise — a gesture nobody
+            // is told about may as well not exist.
+            Text("Drag a digit to tune · Tap to enter")
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
         }
         .sensoryFeedback(.selection, trigger: hz)
         .sheet(isPresented: $showingKeypad) {

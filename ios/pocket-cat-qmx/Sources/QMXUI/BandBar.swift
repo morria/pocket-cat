@@ -48,12 +48,13 @@ struct BandBar: View {
             Text(band.title)
                 .font(.subheadline.weight(isCurrent ? .semibold : .regular))
                 .foregroundStyle(isCurrent ? Color.white : Color.primary)
-                .padding(.horizontal, 14)
-                .padding(.vertical, 7)
+                .padding(.horizontal, 16)
+                .frame(minHeight: 44)          // HIG minimum target
                 .background(isCurrent ? Color.accentColor : Color.bandChipFill,
                             in: Capsule())
         }
         .buttonStyle(.plain)
+        .accessibilityAddTraits(isCurrent ? [.isSelected] : [])
         .contextMenu {
             ForEach(band.segments) { segment in
                 Button("\(segment.name) — \(Self.mhz(segment.hz))") {
