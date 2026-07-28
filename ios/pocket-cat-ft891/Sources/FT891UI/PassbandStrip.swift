@@ -26,16 +26,23 @@ struct PassbandStrip: View {
     }
 
     var body: some View {
-        Group {
-            if let state = passband.state, passband.supportsPassband {
-                strip(state: state)
-            } else if passband.state != nil {
-                summaryRow
+        content
+            .task(id: taskKey) {
+                passband.refresh(session: rig.session,
+                                 mode: rig.state?.mode)
             }
-        }
-        .task(id: taskKey) {
-            passband.refresh(session: rig.session,
-                             mode: rig.state?.mode)
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        if let state = passband.state, passband.supportsPassband {
+            strip(state: state)
+        } else if passband.state != nil {
+            summaryRow
+        } else {
+            // Never EmptyView: `.task` doesn't fire on a view that renders
+            // nothing, and the refresh above is what loads the state.
+            Color.clear.frame(height: 1)
         }
     }
 
