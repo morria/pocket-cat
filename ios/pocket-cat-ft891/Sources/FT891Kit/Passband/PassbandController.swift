@@ -145,6 +145,21 @@ public final class PassbandController {
         coalescer?.submit(.contourHz, value: clamped)
     }
 
+    // MARK: - Resets (surfaced by the strip's menu)
+
+    /// Shift back to zero — the most common "undo" on a real rig.
+    public func centerShift() {
+        setShift(hz: 0)
+    }
+
+    /// Shift centred, notch and contour off. Width is left alone: its
+    /// "default" is the rig's per-mode choice, not ours to guess.
+    public func resetAll() {
+        centerShift()
+        setNotchEnabled(false)
+        setContourEnabled(false)
+    }
+
     public func setAutoNotch(_ enabled: Bool) {
         guard state?.autoNotchEnabled != enabled else { return }
         state?.autoNotchEnabled = enabled

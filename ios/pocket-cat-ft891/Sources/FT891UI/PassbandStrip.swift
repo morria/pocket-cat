@@ -1,8 +1,9 @@
-// The passband strip (docs/passband.md §4): one spatial control for
-// shift, width, notch and contour. Drawing is one Canvas over a fixed
-// 0–3400 Hz axis; gestures resolve through PassbandGeometry; writes
-// coalesce through PassbandController. Every parameter is also a
-// VoiceOver adjustable element (§5).
+// The passband strip (docs/passband.md §4), reworked after UX review:
+// visible affordances (edge grab handles, knobbed notch marker), labeled
+// toggle chips for notch/contour, an overflow menu for resets, a live
+// value bubble while dragging, and 1:1 horizontal drag mapping —
+// predictable over clever, per the HIG. Tap-to-notch remains the fast
+// path; the chips make the same state reachable by labeled control.
 
 import CATBridgeKit
 import FT891Kit
@@ -13,7 +14,9 @@ struct PassbandStrip: View {
     let passband: PassbandController
 
     @State private var drag: DragState?
-    @State private var hapticTick = 0
+    @State private var snapTick = 0
+    @State private var notchTick = false
+    @State private var bubble: Bubble?
 
     private struct DragState {
         var target: PassbandGeometry.HitTarget
@@ -25,12 +28,23 @@ struct PassbandStrip: View {
         var startX: CGFloat
     }
 
+    private struct Bubble: Equatable {
+        var text: String
+        var x: CGFloat
+    }
+
     var body: some View {
         content
             .task(id: taskKey) {
                 passband.refresh(session: rig.session,
                                  mode: rig.state?.mode)
             }
+    }
+
+    /// Re-runs the refresh when connection or mode changes.
+    private var taskKey: String {
+        "\(String(describing: rig.state?.mode))-"
+            + "\(rig.session == nil ? 0 : 1)"
     }
 
     @ViewBuilder
@@ -46,122 +60,227 @@ struct PassbandStrip: View {
         }
     }
 
-    /// Re-runs the refresh when connection or mode changes.
-    private var taskKey: String {
-        "\(String(describing: rig.state?.mode))-"
-            + "\(rig.session == nil ? 0 : 1)"
-    }
-
-    /// AM/FM: nothing to control beyond auto-notch — one line, no strip.
     private var summaryRow: some View {
-        Text("Passband controls are unavailable in this mode.")
-            .font(.caption)
-            .foregroundStyle(.secondary)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal)
+        HStack {
+            Label("Passband", systemImage: "waveform.and.mic")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Spacer()
+            Text("Not available in this mode")
+                .font(.caption)
+                .foregroundStyle(.tertiary)
+        }
+        .padding(.horizontal)
     }
 
     private func strip(state: PassbandState) -> some View {
-        VStack(spacing: 4) {
+        VStack(spacing: 6) {
+            header(state: state)
             GeometryReader { geo in
                 let geometry = PassbandGeometry(width: geo.size.width)
                 canvas(state: state, geometry: geometry)
                     .gesture(stripGesture(state: state, geometry: geometry))
                     .gesture(tapGesture(state: state, geometry: geometry))
+                    .overlay(alignment: .topLeading) {
+                        bubbleView(width: geo.size.width)
+                    }
             }
-            .frame(height: 80)
-            legend(state: state)
+            .frame(height: 84)
+            chipsRow(state: state)
+            Text("Drag the band to shift · handles to resize · "
+                 + "tap to notch a tone")
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(.horizontal)
-        .sensoryFeedback(.selection, trigger: hapticTick)
+        .sensoryFeedback(.selection, trigger: snapTick)
+        .sensoryFeedback(.impact(weight: .light), trigger: notchTick)
         .accessibilityElement(children: .contain)
         .accessibilityRepresentation { accessibilityStand(state: state) }
     }
 
-    // MARK: - Drawing (§4.1)
+    // MARK: - Header: title, live values, overflow menu (resets live here)
+
+    private func header(state: PassbandState) -> some View {
+        HStack(spacing: 8) {
+            Label("Passband", systemImage: "waveform.and.mic")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+            if let widthHz = state.widthHz {
+                Text(widthHz >= 1000
+                     ? String(format: "%.1f kHz", Double(widthHz) / 1000)
+                     : "\(widthHz) Hz")
+                    .font(.caption.monospacedDigit())
+            }
+            if let shift = state.shiftHz, shift != 0 {
+                Text("shift \(shift > 0 ? "+" : "")\(shift)")
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+            Menu {
+                Button("Center Shift",
+                       systemImage: "arrow.uturn.backward") {
+                    passband.centerShift()
+                }
+                .disabled((state.shiftHz ?? 0) == 0)
+                Button(state.notchEnabled == true
+                       ? "Notch Off" : "Notch On",
+                       systemImage: "waveform.badge.minus") {
+                    passband.setNotchEnabled(!(state.notchEnabled ?? false))
+                }
+                Button(state.contourEnabled == true
+                       ? "Contour Off" : "Contour On",
+                       systemImage: "point.topleft.down.curvedto.point.bottomright.up") {
+                    passband.setContourEnabled(
+                        !(state.contourEnabled ?? false))
+                }
+                Divider()
+                Button("Reset All", systemImage: "arrow.counterclockwise",
+                       role: .destructive) {
+                    passband.resetAll()
+                }
+            } label: {
+                Image(systemName: "ellipsis.circle")
+                    .font(.body)
+                    .foregroundStyle(.secondary)
+            }
+            .accessibilityLabel("Passband options")
+        }
+    }
+
+    // MARK: - Toggle chips: labeled on/off, the discoverable path
+
+    private func chipsRow(state: PassbandState) -> some View {
+        HStack(spacing: 8) {
+            chip("Notch", isOn: state.notchEnabled ?? false,
+                 tint: .red) {
+                passband.setNotchEnabled(!(state.notchEnabled ?? false))
+                notchTick.toggle()
+            }
+            chip("Contour", isOn: state.contourEnabled ?? false,
+                 tint: .orange) {
+                passband.setContourEnabled(!(state.contourEnabled ?? false))
+            }
+            Spacer()
+            if state.notchEnabled == true, let notch = state.notchHz {
+                Text("notch \(notch) Hz")
+                    .font(.caption2.monospacedDigit())
+                    .foregroundStyle(.red)
+            }
+            if state.contourEnabled == true,
+               let contour = state.contourHz {
+                Text("contour \(contour) Hz")
+                    .font(.caption2.monospacedDigit())
+                    .foregroundStyle(.orange)
+            }
+        }
+    }
+
+    private func chip(_ title: String, isOn: Bool, tint: Color,
+                      action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.caption.weight(isOn ? .semibold : .regular))
+        }
+        .buttonStyle(.bordered)
+        .buttonBorderShape(.capsule)
+        .controlSize(.small)
+        .tint(isOn ? tint : .secondary)
+        .accessibilityAddTraits(isOn ? .isSelected : [])
+    }
+
+    // MARK: - Drawing
 
     private func canvas(state: PassbandState,
                         geometry: PassbandGeometry) -> some View {
         Canvas { context, size in
-            // Axis + ticks every 500 Hz.
             let axisY = size.height - 12
             context.stroke(
                 Path { $0.move(to: CGPoint(x: 0, y: axisY))
                        $0.addLine(to: CGPoint(x: size.width, y: axisY)) },
-                with: .color(.secondary.opacity(0.5)), lineWidth: 1)
+                with: .color(.secondary.opacity(0.4)), lineWidth: 1)
             for hz in stride(from: 0, through: 3400, by: 500) {
                 let x = geometry.x(forHz: hz)
                 context.stroke(
                     Path { $0.move(to: CGPoint(x: x, y: axisY))
                            $0.addLine(to: CGPoint(x: x, y: axisY + 5)) },
-                    with: .color(.secondary.opacity(0.5)), lineWidth: 1)
+                    with: .color(.secondary.opacity(0.4)), lineWidth: 1)
             }
 
-            // Passband capsule.
             if let widthHz = state.widthHz {
                 let edges = geometry.passbandEdges(
                     widthHz: widthHz, shiftHz: state.shiftHz ?? 0)
                 let lowX = geometry.x(forHz: edges.lowHz)
                 let highX = geometry.x(forHz: edges.highHz)
-                let rect = CGRect(x: lowX, y: 12, width: highX - lowX,
-                                  height: axisY - 20)
+                let rect = CGRect(x: lowX, y: 14, width: highX - lowX,
+                                  height: axisY - 22)
                 context.fill(
                     Path(roundedRect: rect, cornerRadius: 8),
-                    with: .color(.accentColor.opacity(0.35)))
+                    with: .color(.accentColor.opacity(0.3)))
                 context.stroke(
                     Path(roundedRect: rect, cornerRadius: 8),
                     with: .color(.accentColor), lineWidth: 1.5)
+
+                // Visible grab handles: the affordance the edges lacked.
+                for x in [lowX, highX] {
+                    let handle = CGRect(x: x - 2.5, y: rect.midY - 11,
+                                        width: 5, height: 22)
+                    context.fill(
+                        Path(roundedRect: handle, cornerRadius: 2.5),
+                        with: .color(.accentColor))
+                }
             }
 
-            // Notch marker: a vertical line, dimmed when disabled.
-            if let notchHz = state.notchHz {
+            // Notch: line + knob so it reads as draggable. Hidden when
+            // off — the chip is its presence indicator.
+            if state.notchEnabled == true, let notchHz = state.notchHz {
                 let x = geometry.x(forHz: notchHz)
-                let enabled = state.notchEnabled ?? false
                 context.stroke(
-                    Path { $0.move(to: CGPoint(x: x, y: 6))
+                    Path { $0.move(to: CGPoint(x: x, y: 16))
                            $0.addLine(to: CGPoint(x: x, y: axisY)) },
-                    with: .color(.red.opacity(enabled ? 0.9 : 0.25)),
-                    lineWidth: 2)
-            }
-
-            // Contour handle: low-profile dome on the axis.
-            if let contourHz = state.contourHz {
-                let x = geometry.x(forHz: contourHz)
-                let enabled = state.contourEnabled ?? false
-                let dome = CGRect(x: x - 9, y: axisY - 9, width: 18,
-                                  height: 9)
+                    with: .color(.red), lineWidth: 2)
                 context.fill(
-                    Path(ellipseIn: dome),
-                    with: .color(.orange.opacity(enabled ? 0.9 : 0.3)))
+                    Path(ellipseIn: CGRect(x: x - 5, y: 8, width: 10,
+                                           height: 10)),
+                    with: .color(.red))
+            }
+
+            if state.contourEnabled == true, let contourHz = state.contourHz {
+                let x = geometry.x(forHz: contourHz)
+                let dome = CGRect(x: x - 10, y: axisY - 10, width: 20,
+                                  height: 10)
+                context.fill(Path(ellipseIn: dome), with: .color(.orange))
             }
         }
+        .background(
+            RoundedRectangle(cornerRadius: 10)
+                .fill(.quaternary.opacity(0.4)))
     }
 
-    private func legend(state: PassbandState) -> some View {
-        HStack {
-            if let widthHz = state.widthHz {
-                Text("\(widthHz) Hz")
+    private func bubbleView(width: CGFloat) -> some View {
+        Group {
+            if let bubble {
+                Text(bubble.text)
+                    .font(.caption.monospacedDigit().weight(.medium))
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(.regularMaterial, in: Capsule())
+                    .offset(x: min(max(bubble.x - 40, 0), width - 80),
+                            y: -26)
+                    .transition(.opacity)
             }
-            if let shift = state.shiftHz, shift != 0 {
-                Text("shift \(shift > 0 ? "+" : "")\(shift)")
-            }
-            if state.notchEnabled == true, let notch = state.notchHz {
-                Text("notch \(notch)").foregroundStyle(.red)
-            }
-            if state.contourEnabled == true, let contour = state.contourHz {
-                Text("contour \(contour)").foregroundStyle(.orange)
-            }
-            Spacer()
         }
-        .font(.caption2.monospacedDigit())
-        .foregroundStyle(.secondary)
+        .animation(.easeOut(duration: 0.15), value: bubble)
+        .allowsHitTesting(false)
     }
 
-    // MARK: - Gestures (§4.2)
+    // MARK: - Gestures
 
     private func stripGesture(state: PassbandState,
                               geometry: PassbandGeometry) -> some Gesture {
-        DragGesture(minimumDistance: 2)
+        DragGesture(minimumDistance: 8)
             .onChanged { value in
                 if drag == nil {
                     let target = geometry.hitTarget(
@@ -170,9 +289,8 @@ struct PassbandStrip: View {
                         shiftHz: state.shiftHz ?? 0,
                         notchHz: state.notchHz,
                         notchEnabled: state.notchEnabled ?? false)
-                    // Contour dome: bottom band around its position wins.
                     let isContour = state.contourEnabled == true
-                        && value.startLocation.y > 55
+                        && value.startLocation.y > 58
                         && state.contourHz.map {
                             abs(value.startLocation.x - geometry.x(forHz: $0))
                                 <= PassbandGeometry.edgeHitZone
@@ -195,41 +313,54 @@ struct PassbandStrip: View {
                     passband.endDrag()
                 }
                 drag = nil
+                bubble = nil
             }
     }
 
     private func apply(_ value: DragGesture.Value, state: PassbandState,
                        geometry: PassbandGeometry) {
         guard let drag else { return }
-        // Vertical distance scales sensitivity (§4.2).
-        let sensitivity = PassbandGeometry.sensitivity(
-            verticalDistance: value.location.y - 40)
+        // 1:1 horizontal mapping — predictable beats clever in a scroll
+        // view (the old vertical-sensitivity trick fought scrolling).
         let deltaHz = Int(CGFloat(PassbandGeometry.axisMaxHz)
-            * (value.location.x - drag.startX) / geometry.width
-            * sensitivity)
+            * (value.location.x - drag.startX) / geometry.width)
 
         if drag.isContour {
-            passband.setContour(hz: drag.startContourHz + deltaHz)
+            let hz = drag.startContourHz + deltaHz
+            passband.setContour(hz: hz)
+            bubble = Bubble(text: "Contour \(passband.state?.contourHz ?? hz) Hz",
+                            x: value.location.x)
             return
         }
         switch drag.target {
         case .body:
+            let before = passband.state?.shiftHz
             passband.setShift(hz: drag.startShiftHz + deltaHz)
+            let now = passband.state?.shiftHz ?? 0
+            if before != now { snapTick += 1 }
+            bubble = Bubble(
+                text: "Shift \(now > 0 ? "+" : "")\(now) Hz",
+                x: value.location.x)
         case .leftEdge, .rightEdge:
             guard let family = passband.widthFamily else { return }
-            // Dragging an edge by ΔHz changes width by 2Δ (symmetric);
-            // left edge inverts.
             let sign = drag.target == .leftEdge ? -1 : 1
             let startHz = family.widthHz(at: drag.startWidthIndex)
                 ?? family.widths[family.indices.upperBound - 1]
             let index = family.index(
                 forWidthHz: max(1, startHz + 2 * sign * deltaHz))
-            if index != state.widthIndex {
-                hapticTick += 1 // snap feedback per index change (§4.3)
-            }
+            if index != state.widthIndex { snapTick += 1 }
             passband.setWidth(index: index)
+            if let hz = passband.state?.widthHz {
+                bubble = Bubble(text: hz >= 1000
+                    ? String(format: "Width %.1f kHz", Double(hz) / 1000)
+                    : "Width \(hz) Hz",
+                    x: value.location.x)
+            }
         case .notch:
             passband.setNotch(hz: drag.startNotchHz + deltaHz)
+            bubble = Bubble(
+                text: "Notch \(passband.state?.notchHz ?? 0) Hz",
+                x: value.location.x)
         case .empty:
             break
         }
@@ -245,15 +376,22 @@ struct PassbandStrip: View {
                     shiftHz: state.shiftHz ?? 0,
                     notchHz: state.notchHz,
                     notchEnabled: state.notchEnabled ?? false)
+                // Tap = place the notch (the one-gesture carrier fix).
+                // Clearing moved to the chip/menu: a labeled, reversible
+                // control instead of a hidden tap target.
                 switch target {
-                case .notch:
-                    // Tap an enabled notch marker: disable it (stands in
-                    // for double-tap, which fights the drag recognizer).
-                    passband.setNotchEnabled(false)
-                case .empty:
+                case .empty, .body:
                     passband.placeNotch(
                         hz: geometry.hz(forX: value.location.x))
-                case .body, .leftEdge, .rightEdge:
+                    notchTick.toggle()
+                    bubble = Bubble(
+                        text: "Notch \(passband.state?.notchHz ?? 0) Hz",
+                        x: value.location.x)
+                    Task {
+                        try? await Task.sleep(for: .seconds(1.2))
+                        bubble = nil
+                    }
+                case .notch, .leftEdge, .rightEdge:
                     break
                 }
             }
@@ -299,6 +437,8 @@ struct PassbandStrip: View {
                     get: { state.contourEnabled ?? false },
                     set: { passband.setContourEnabled($0) }))
             }
+            Button("Center shift") { passband.centerShift() }
+            Button("Reset passband") { passband.resetAll() }
         }
     }
 }
