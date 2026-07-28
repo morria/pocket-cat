@@ -205,6 +205,7 @@ public struct QMXSimRig: Sendable {
     public var transmitting = false
     public var lsb = false               // Q1 sideband
     public var split = false             // SP
+    public var vfoMode = 0               // FR/FT: 0 A, 1 B, 2 split
     public var ritOn = false
     public var ritOffset = 0             // Hz, ±9999
     public var ritAbsolute = true        // "CAT RU and RD" behavior
@@ -377,6 +378,7 @@ public struct QMXSimRig: Sendable {
         case "Q1;": return "Q1\(lsb ? 1 : 0);"
         case "Q9;": return "Q9\(iqMode ? 1 : 0);"
         case "SP;": return "SP\(split ? 1 : 0);"
+        case "FR;", "FT;": return "FR\(vfoMode);"
         case "RT;": return "RT\(ritOn ? 1 : 0);"
         case "RC;": ritOffset = 0; return nil
         case "SA;": return "SA\(agcDB);"
@@ -430,6 +432,7 @@ public struct QMXSimRig: Sendable {
         }
         if body.hasPrefix("SP"), body.count == 3 {
             split = body.last == "1"
+            vfoMode = split ? 2 : min(vfoMode, 1)
             return nil
         }
         if body.hasPrefix("RT"), body.count == 3 {
@@ -466,8 +469,10 @@ public struct QMXSimRig: Sendable {
             return nil
         }
         if body.hasPrefix("PC"), body.count > 2 { return "?;" } // GET-only
-        if body.hasPrefix("FR") || body.hasPrefix("FT"), body.count == 3 {
-            split = body.last == "2"
+        if body.hasPrefix("FR") || body.hasPrefix("FT"), body.count == 3,
+           let raw = body.last?.wholeNumberValue, (0...2).contains(raw) {
+            vfoMode = raw
+            split = raw == 2
             return nil
         }
         return "?;"

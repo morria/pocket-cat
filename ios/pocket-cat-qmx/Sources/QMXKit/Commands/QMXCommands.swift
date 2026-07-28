@@ -171,6 +171,16 @@ extension TransceiverSession {
         _ = try await rawCommand("SP\(on ? 1 : 0);", expectsReply: false)
     }
 
+    /// Which VFO is in use, or split (`FR`). Split is not a third VFO —
+    /// it means receive on A and transmit on B.
+    public func readVFOMode() async throws -> VFOMode {
+        let body = try await qmxRead("FR;", prefix: "FR")
+        guard let raw = Int(body), let mode = VFOMode(rawValue: raw) else {
+            throw CATBridgeError.malformedResponse("FR")
+        }
+        return mode
+    }
+
     public func setVFOMode(_ mode: VFOMode) async throws {
         _ = try await rawCommand("FR\(mode.rawValue);", expectsReply: false)
     }

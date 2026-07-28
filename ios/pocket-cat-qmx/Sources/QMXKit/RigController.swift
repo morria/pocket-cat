@@ -21,6 +21,12 @@ public final class RigController {
 
     public private(set) var sideband: Sideband = .usb
     public private(set) var splitEnabled = false
+    /// Which VFO is in use, or split. Split is receive-on-A/transmit-on-B,
+    /// not a third VFO.
+    public private(set) var vfoMode: VFOMode = .vfoA
+    /// The mode as last read from the radio. `state.mode` only fills after
+    /// the library's first poll, which left the mode row blank on connect.
+    public private(set) var readMode: QMXMode?
     public private(set) var ritEnabled = false
     public private(set) var ritOffset = 0
     public private(set) var vfoB: Frequency?
@@ -50,7 +56,7 @@ public final class RigController {
     }
 
     public var currentMode: QMXMode? {
-        state?.mode.flatMap(QMXMode.init(operatingMode:))
+        state?.mode.flatMap(QMXMode.init(operatingMode:)) ?? readMode
     }
 
     // MARK: - Lifecycle
@@ -262,6 +268,8 @@ public final class RigController {
     public func refreshSecondaryState() async {
         guard let session else { return }
         sideband = (try? await session.readSideband()) ?? sideband
+        readMode = (try? await session.readQMXMode()) ?? readMode
+        vfoMode = (try? await session.readVFOMode()) ?? vfoMode
         splitEnabled = (try? await session.readSplit()) ?? splitEnabled
         ritEnabled = (try? await session.readRITEnabled()) ?? ritEnabled
         ritOffset = (try? await session.readRITOffset()) ?? ritOffset
@@ -309,8 +317,21 @@ public final class RigController {
 
     public func setMode(_ mode: QMXMode) async {
         guard let session else { return }
-        do { try await session.setMode(mode.operatingMode) }
-        catch { notify(friendlyMessage(for: error)) }
+        do {
+            try await session.setMode(mode.operatingMode)
+            readMode = mode
+        } catch { notify(friendlyMessage(for: error)) }
+    }
+
+    /// VFO A, VFO B, or split. Keeps `splitEnabled` in step so the two
+    /// can't disagree.
+    public func setVFOMode(_ mode: VFOMode) async {
+        guard let session else { return }
+        do {
+            try await session.setVFOMode(mode)
+            vfoMode = mode
+            splitEnabled = mode == .split
+        } catch { notify(friendlyMessage(for: error)) }
     }
 
     /// Switch mode family, keeping the current tone sense. Picking CW while
