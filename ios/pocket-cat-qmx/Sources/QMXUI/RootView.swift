@@ -18,6 +18,10 @@ public struct RootView: View {
                 .tabItem { Label("Spectrum", systemImage: "waveform") }
             NavigationStack { CWMessagesView() }
                 .tabItem { Label("CW", systemImage: "text.bubble") }
+            NavigationStack { WSPRView() }
+                .tabItem {
+                    Label("WSPR", systemImage: "dot.radiowaves.up.forward")
+                }
             NavigationStack { MenuBrowserView() }
                 .tabItem {
                     Label("Menu", systemImage: "slider.horizontal.3")

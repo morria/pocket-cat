@@ -7,7 +7,6 @@ import SwiftUI
 
 struct WSPRView: View {
     @Environment(RigController.self) private var rig
-    @Environment(\.dismiss) private var dismiss
     @Bindable private var settings = AppSettings.shared
     @State private var beacon = WSPRBeacon()
     @State private var now = Date()
@@ -16,26 +15,23 @@ struct WSPRView: View {
         .autoconnect()
 
     var body: some View {
-        NavigationStack {
-            Form {
+        Form {
                 statusSection
+                if !settings.wsprIsConfigured {
+                    Section {
+                        Label("Set your callsign and grid in Settings.",
+                              systemImage: "person.crop.circle.badge.exclamationmark")
+                            .foregroundStyle(.orange)
+                    }
+                }
+
                 Section {
-                    LabeledContent("Callsign") {
-                        TextField("M0ABC", text: $settings.callsign)
-                            .multilineTextAlignment(.trailing)
-                            .autocorrectionDisabled()
-                            #if os(iOS)
-                            .textInputAutocapitalization(.characters)
-                            #endif
-                    }
-                    LabeledContent("Grid") {
-                        TextField("IO91", text: $settings.grid)
-                            .multilineTextAlignment(.trailing)
-                            .autocorrectionDisabled()
-                            #if os(iOS)
-                            .textInputAutocapitalization(.characters)
-                            #endif
-                    }
+                    LabeledContent("Callsign",
+                                   value: settings.callsign.isEmpty
+                                        ? "—" : settings.callsign)
+                    LabeledContent("Grid",
+                                   value: settings.grid.isEmpty
+                                        ? "—" : Maidenhead.square(settings.grid))
                     Picker("Power", selection: $settings.wsprPowerDBm) {
                         ForEach(Self.powerLevels, id: \.self) { dbm in
                             Text(Self.powerLabel(dbm)).tag(dbm)
@@ -44,8 +40,8 @@ struct WSPRView: View {
                 } header: {
                     Text("Station")
                 } footer: {
-                    Text("Callsign and grid are shared with the CW screen's "
-                         + "message templates.")
+                    Text("Callsign and grid live in Settings — they're "
+                         + "shared with the CW templates.")
                 }
 
                 Section {
@@ -87,25 +83,22 @@ struct WSPRView: View {
                            + "connect to a radio.")
                 }
             }
-            .navigationTitle("WSPR Beacon")
-            #if os(iOS)
-            .navigationBarTitleDisplayMode(.inline)
-            #endif
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") { dismiss() }
-                }
-            }
-            .onReceive(tick) { now = $0 }
-            .task {
-                beacon.session = rig.session
-                beacon.slotInterval = settings.wsprSlotInterval
-            }
-            .onChange(of: settings.wsprSlotInterval) {
-                beacon.slotInterval = settings.wsprSlotInterval
-            }
+        .navigationTitle("WSPR")
+        #if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
+        #endif
+        .toolbar {
+            ToolbarItem(placement: .principal) { ConnectionStatusButton() }
         }
-        .interactiveDismissDisabled(beacon.isRunning)
+        .onReceive(tick) { now = $0 }
+        .task {
+            beacon.session = rig.session
+            beacon.slotInterval = settings.wsprSlotInterval
+        }
+        .onChange(of: settings.wsprSlotInterval) {
+            beacon.slotInterval = settings.wsprSlotInterval
+        }
+        .onChange(of: rig.connectionPhase) { beacon.session = rig.session }
     }
 
     // MARK: - Status
@@ -165,12 +158,12 @@ struct WSPRView: View {
     private func start() {
         beacon.session = rig.session
         beacon.start(callsign: settings.callsign,
-                     grid: settings.grid,
+                     grid: Maidenhead.square(settings.grid),
                      powerDBm: settings.wsprPowerDBm,
                      band: settings.wsprBand)
     }
 }
 
 #Preview {
-    WSPRView().environment(RigController())
+    NavigationStack { WSPRView() }.environment(RigController())
 }

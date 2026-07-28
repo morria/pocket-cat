@@ -8,10 +8,72 @@ struct AppSettingsView: View {
     @Environment(RigController.self) private var rig
     @Environment(\.dismiss) private var dismiss
     @Bindable private var settings = AppSettings.shared
+    @State private var locator = GridLocator()
 
     var body: some View {
         NavigationStack {
             Form {
+                Section {
+                    LabeledContent("Callsign") {
+                        TextField("M0ABC", text: $settings.callsign)
+                            .multilineTextAlignment(.trailing)
+                            .autocorrectionDisabled()
+                            #if os(iOS)
+                            .textInputAutocapitalization(.characters)
+                            #endif
+                    }
+                    LabeledContent("Name") {
+                        TextField("Andrew", text: $settings.operatorName)
+                            .multilineTextAlignment(.trailing)
+                            #if os(iOS)
+                            .textInputAutocapitalization(.words)
+                            #endif
+                    }
+                    LabeledContent("Location") {
+                        TextField("London", text: $settings.qth)
+                            .multilineTextAlignment(.trailing)
+                            #if os(iOS)
+                            .textInputAutocapitalization(.words)
+                            #endif
+                    }
+                    LabeledContent("Grid") {
+                        TextField("IO91wm", text: $settings.grid)
+                            .multilineTextAlignment(.trailing)
+                            .autocorrectionDisabled()
+                            #if os(iOS)
+                            .textInputAutocapitalization(.never)
+                            #endif
+                    }
+                    Button {
+                        Task {
+                            if let grid = await locator.currentLocator() {
+                                settings.grid = grid
+                            }
+                        }
+                    } label: {
+                        HStack {
+                            Label("Use Current Location",
+                                  systemImage: "location")
+                            if locator.state == .locating {
+                                Spacer()
+                                ProgressView()
+                            }
+                        }
+                    }
+                    .disabled(locator.state == .locating)
+                    if case .failed(let reason) = locator.state {
+                        Label(reason, systemImage: "exclamationmark.circle")
+                            .font(.caption)
+                            .foregroundStyle(.orange)
+                    }
+                } header: {
+                    Text("Station")
+                } footer: {
+                    Text("Used by the CW message templates and the WSPR "
+                         + "beacon. WSPR sends the first four characters of "
+                         + "the grid.")
+                }
+
                 Section {
                     Toggle("Keep Screen Awake",
                            isOn: $settings.keepScreenAwake)

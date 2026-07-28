@@ -22,6 +22,8 @@
 	<string>1</string>
 	<key>NSBluetoothAlwaysUsageDescription</key>
 	<string>QMX connects to your Pocket Cat CAT bridge over Bluetooth to control the radio.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>QMX uses your location once, when you tap Use Current Location, to fill in your Maidenhead grid square for WSPR and CW.</string>
 	<key>NSUbiquitousContainers</key>
 	<dict>
 		<key>iCloud.radio.qmx.QMXApp</key>

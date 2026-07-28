@@ -8,7 +8,6 @@ import SwiftUI
 struct OperateView: View {
     @Environment(RigController.self) private var rig
     @State private var transmitting = false
-    @State private var showingWSPR = false
     @State private var showingMemories = false
     @State private var showingSettings = false
 
@@ -35,9 +34,6 @@ struct OperateView: View {
                     Button("Memories…", systemImage: "bookmark") {
                         showingMemories = true
                     }
-                    Button("WSPR Beacon…", systemImage: "dot.radiowaves.up.forward") {
-                        showingWSPR = true
-                    }
                     Button("Settings…", systemImage: "gear") {
                         showingSettings = true
                     }
@@ -46,7 +42,6 @@ struct OperateView: View {
                 }
             }
         }
-        .sheet(isPresented: $showingWSPR) { WSPRView() }
         .sheet(isPresented: $showingMemories) { MemoriesView() }
         .sheet(isPresented: $showingSettings) { AppSettingsView() }
         .overlay {
