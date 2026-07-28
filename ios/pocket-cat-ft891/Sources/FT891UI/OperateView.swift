@@ -191,53 +191,43 @@ struct PTTButton: View {
     private var isTransmitting: Bool { rig.state?.isTransmitting ?? false }
 
     var body: some View {
-        Button {
-            // Nothing on tap: this control is press-and-hold.
-        } label: {
-            Text(isTransmitting ? "ON AIR" : "Hold to Talk")
-                .font(.headline)
-                .foregroundStyle(.white)
-                .frame(maxWidth: .infinity)
-                .frame(minHeight: minHeight)
-                .padding(.vertical, 4)
-                .background(
-                    isTransmitting ? Color.red : Color.accentColor,
-                    in: RoundedRectangle(cornerRadius: 14))
-                .padding(.horizontal)
-        }
-        .buttonStyle(PressAndHoldStyle { down in
-            guard pressed != down else { return }
-            pressed = down
-            Task {
-                if down {
-                    await rig.pressPTT()
-                } else {
-                    await rig.releasePTT()
+        Text(title)
+            .font(.headline)
+            .foregroundStyle(.white)
+            .frame(maxWidth: .infinity)
+            .frame(minHeight: minHeight)
+            .padding(.vertical, 4)
+            .background(
+                isTransmitting ? Color.red
+                               : Color.accentColor.opacity(pressed ? 0.75 : 1),
+                in: RoundedRectangle(cornerRadius: 14))
+            .scaleEffect(pressed ? 0.98 : 1)
+            .animation(.easeOut(duration: 0.1), value: pressed)
+            .padding(.horizontal)
+            .contentShape(Rectangle())
+            .onLongPressGesture(minimumDuration: .infinity,
+                                maximumDistance: .infinity) {
+                // Never fires: the press has no maximum duration.
+            } onPressingChanged: { isPressing in
+                pressed = isPressing
+                Task {
+                    if isPressing {
+                        await rig.pressPTT()
+                    } else {
+                        await rig.releasePTT()
+                    }
                 }
             }
-        })
-        .sensoryFeedback(.impact(weight: .heavy),
-                         trigger: isTransmitting)
-        .accessibilityLabel(
-            isTransmitting ? "Transmitting" : "Push to talk")
-        .accessibilityHint("Double-tap and hold to transmit")
+            .sensoryFeedback(.impact(weight: .heavy),
+                             trigger: isTransmitting)
+            .accessibilityLabel(
+                isTransmitting ? "Transmitting" : "Push to talk")
+            .accessibilityHint("Double-tap and hold to transmit")
     }
-}
 
-/// Reports a button's press state, for press-and-hold controls.
-///
-/// A `Button`'s action fires on touch-*up*, and a raw `DragGesture` loses
-/// to an enclosing scroll view's pan — between them, holding did nothing.
-/// `configuration.isPressed` is the press state SwiftUI maintains itself
-/// and stays true for exactly as long as the finger is down.
-struct PressAndHoldStyle: ButtonStyle {
-    let pressed: (Bool) -> Void
-
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .contentShape(Rectangle())
-            .onChange(of: configuration.isPressed) { _, isDown in
-                pressed(isDown)
-            }
+    /// Separates "the gesture fired" from "the radio confirmed".
+    private var title: String {
+        if isTransmitting { return "ON AIR" }
+        return pressed ? "Keying…" : "Hold to Talk"
     }
 }

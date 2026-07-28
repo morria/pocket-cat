@@ -8,7 +8,7 @@ import SwiftUI
 struct OperateView: View {
     @Environment(RigController.self) private var rig
     @Environment(WSPRBeacon.self) private var beacon
-    @State private var transmitting = false
+    @State private var pressed = false
     @ScaledMetric(relativeTo: .headline) private var pttHeight: CGFloat = 54
     @State private var showingMemories = false
     @State private var showingSettings = false
@@ -252,43 +252,62 @@ struct OperateView: View {
 
     /// Hold to transmit.
     ///
-    /// Driven by a ButtonStyle's `isPressed` rather than a `DragGesture`.
-    /// A `Button`'s action fires on touch-*up*, so the first version keyed
-    /// only on release; a raw drag then lost to the scroll view's pan, so
-    /// holding still did nothing. `isPressed` flips on touch-down and back
-    /// on release, and the button is now outside the scroll view as well.
+    /// Uses `onLongPressGesture(minimumDuration: .infinity, ...)`, whose
+    /// `onPressingChanged` fires true on touch-down and false on release.
+    ///
+    /// Two earlier attempts failed for different reasons, both worth
+    /// recording: a plain `Button` runs its action on touch-*up*, and an
+    /// `onChange(of: configuration.isPressed)` inside a `ButtonStyle`
+    /// never fires at all — the style's body is rebuilt for each
+    /// configuration, so `onChange` compares the new value against itself
+    /// and sees no transition.
     private var pttButton: some View {
         let keyed = rig.state?.isTransmitting ?? false
-        return Button {
-            // Nothing on tap: this control is press-and-hold.
-        } label: {
-            Label(keyed ? "ON AIR" : "Hold to Transmit",
-                  systemImage: keyed
-                    ? "antenna.radiowaves.left.and.right.circle.fill"
-                    : "antenna.radiowaves.left.and.right.circle")
-                .font(.headline)
-                .foregroundStyle(.white)
-                .frame(maxWidth: .infinity)
-                .frame(minHeight: pttHeight)
-                .background(keyed ? Color.red : Color.accentColor,
-                            in: RoundedRectangle(cornerRadius: 14,
-                                                 style: .continuous))
-        }
-        .buttonStyle(PressAndHoldStyle { down in
-            guard canTransmit else { return }
-            transmitting = down
-            Task {
-                if down { await rig.pressPTT() } else { await rig.releasePTT() }
+        return Label(pttTitle(keyed: keyed),
+                     systemImage: keyed
+                        ? "antenna.radiowaves.left.and.right.circle.fill"
+                        : "antenna.radiowaves.left.and.right.circle")
+            .font(.headline)
+            .foregroundStyle(.white)
+            .frame(maxWidth: .infinity)
+            .frame(minHeight: pttHeight)
+            .background(keyed ? Color.red
+                              : Color.accentColor.opacity(pressed ? 0.75 : 1),
+                        in: RoundedRectangle(cornerRadius: 14,
+                                             style: .continuous))
+            .scaleEffect(pressed ? 0.98 : 1)
+            .animation(.easeOut(duration: 0.1), value: pressed)
+            .contentShape(RoundedRectangle(cornerRadius: 14,
+                                           style: .continuous))
+            .onLongPressGesture(minimumDuration: .infinity,
+                                maximumDistance: .infinity) {
+                // Never fires: the press has no maximum duration.
+            } onPressingChanged: { isPressing in
+                guard canTransmit else { return }
+                pressed = isPressing
+                Task {
+                    if isPressing {
+                        await rig.pressPTT()
+                    } else {
+                        await rig.releasePTT()
+                    }
+                }
             }
-        })
-        .opacity(canTransmit ? 1 : 0.5)
-        .disabled(!canTransmit)
-        .sensoryFeedback(.impact(weight: .heavy), trigger: keyed)
-        .accessibilityLabel(keyed ? "Transmitting" : "Push to talk")
-        .accessibilityHint(beacon.isRunning
-            ? "Unavailable while the WSPR beacon is running."
-            : "Double-tap and hold to transmit. The bridge failsafe "
-              + "unkeys automatically if the link drops.")
+            .opacity(canTransmit ? 1 : 0.5)
+            .allowsHitTesting(canTransmit)
+            .sensoryFeedback(.impact(weight: .heavy), trigger: keyed)
+            .accessibilityLabel(keyed ? "Transmitting" : "Push to talk")
+            .accessibilityHint(beacon.isRunning
+                ? "Unavailable while the WSPR beacon is running."
+                : "Double-tap and hold to transmit. The bridge failsafe "
+                  + "unkeys automatically if the link drops.")
+    }
+
+    /// Distinguishes "the gesture fired" from "the radio confirmed", so a
+    /// failure of either half is visible rather than indistinguishable.
+    private func pttTitle(keyed: Bool) -> String {
+        if keyed { return "ON AIR" }
+        return pressed ? "Keying…" : "Hold to Transmit"
     }
 
     /// The beacon owns the transmitter while it runs; a second key-down
@@ -321,23 +340,5 @@ private struct ModeChip: View {
         .frame(minHeight: 44)
         .disabled(!enabled)
         .accessibilityAddTraits(selected ? [.isSelected] : [])
-    }
-}
-
-/// Reports the press state of a button, for press-and-hold controls.
-///
-/// `Button` actions fire on touch-up and raw drags lose to scroll views;
-/// `configuration.isPressed` is the press state SwiftUI maintains itself,
-/// and it is true for exactly as long as the finger is down.
-private struct PressAndHoldStyle: ButtonStyle {
-    let pressed: (Bool) -> Void
-
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .contentShape(RoundedRectangle(cornerRadius: 14,
-                                           style: .continuous))
-            .onChange(of: configuration.isPressed) { _, isDown in
-                pressed(isDown)
-            }
     }
 }
