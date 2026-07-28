@@ -27,8 +27,13 @@ real radio, not a specification to code against. Guessing a field width here
 does not produce a compile error — it produces a write that silently reshapes
 someone's receiver, or a `?;` rejection loop.
 
-**The order of work is: §2 first, on hardware, writing findings back into
-`yaesu-cat-ft891.md`. Then §3 onwards.**
+**Update 2026-07-28:** §2's *format* questions are now researched and
+documented in `yaesu-cat-ft891.md` ("Passband commands" section), sourced
+from Hamlib's `is_ft891` branches — the de-facto tested implementation for
+this rig family. Each answer is marked below. What remains for the bench is
+**verification plus the behavioural questions** (§2.6): confirm each format
+with one command on a real radio before the UI ships writes, and mark the
+reference doc rows verified as you go.
 
 ---
 
@@ -41,11 +46,11 @@ answer and the date it was verified.
 
 | Question | Why it matters |
 |---|---|
-| Exact wire format. Yaesu uses a sign and a fixed-width field; is it `IS0+nnnn;` / `IS0-nnnn;`, and is the leading `0` a fixed VFO selector? | Wrong width is a rejected command at best |
-| Units and range — Hz, and what maximum? ±1000? ±1200? | Determines the strip's drag scale |
-| Step granularity — does the radio round to 20 Hz, 50 Hz? | If it snaps, the UI must snap too or the readback will fight the drag |
-| Does `IS;` read back the current value in the same format? | Needed for optimistic-UI reconciliation |
-| Is shift mode-dependent (disabled in FM/AM)? | The strip must disable itself rather than send doomed writes |
+| Exact wire format | **ANSWERED** (Hamlib): `IS0` + on-digit (`0` iff value 0) + `%+.4d` → `IS01+0250;`, clear `IS00+0000;`. Read `IS0;` |
+| Units and range | **ANSWERED**: Hz, ±1200 |
+| Step granularity | **BENCH**: panel steps 20 Hz; whether CAT rounds is unverified — assume snap-to-20 in UI until measured |
+| Does `IS;` read back? | **ANSWERED**: yes, `IS0;`, same shape |
+| Mode-dependent? | **BENCH**: assume rejected in AM/FM (other Yaesus are); UI disables there regardless |
 
 ### 2.2 Width — `SH`
 
@@ -54,9 +59,9 @@ width *index*, not a frequency.
 
 | Question | Why it matters |
 |---|---|
-| The full index → bandwidth table, **per mode**. SSB, CW and DATA have different width lists on this radio. | The strip draws real Hz; it cannot without this table |
-| How many indices per mode, and are they contiguous? | Snap points |
-| Interaction with `NA` (narrow) — does `NA` reset or clamp `SH`? | Two controls fighting is a classic bug |
+| The per-mode index → Hz table | **ANSWERED** (Hamlib, shared FT-891/991 table — now in `yaesu-cat-ft891.md`): CW/RTTY/DATA idx 1–17 (50–3000 Hz), SSB idx 1–21 (200–3200 Hz), AM/FM via `NA` only. FT-891 set format is `SH01nn;` (note the extra "on" digit) |
+| Contiguous indices? | **ANSWERED**: yes, 1…N per mode; 0 = rig default |
+| `NA` interaction | **ANSWERED** (ordering) / **BENCH** (reset behaviour): `NA` must be written *before* `SH`; ≤ narrow_max (500 CW / 1800 SSB) needs `NA01;`. Whether flipping `NA` alone re-clamps `SH` is a bench item |
 
 Capture the table as data (a Swift dictionary keyed by mode), not as
 scattered constants.
@@ -65,27 +70,27 @@ scattered constants.
 
 | Question | Why it matters |
 |---|---|
-| The two-parameter shape. Yaesu convention is `BP00nnn;` for on/off and `BP01nnn;` for the frequency — confirm which sub-address is which | The whole tap-to-notch interaction rests on this |
-| Notch frequency units and range — Hz? tens of Hz? 10–3200? | Maps the tap's x-position to a value |
-| Step granularity | Snap and haptics |
-| Does enabling the notch require the manual-notch mode to be selected first (vs DNF)? | Ordering of the two writes |
-| Does `BP` read back? | Reconciliation |
+| Sub-address shape | **ANSWERED**: `BP00001;`/`BP00000;` on/off, `BP01nnn;` frequency |
+| Units and range | **ANSWERED**: 10 Hz units, 001–320 → 10–3200 Hz |
+| Step granularity | **ANSWERED**: 10 Hz (wire resolution) |
+| Ordering vs enable | **BENCH**: Hamlib writes them independently; confirm freq-while-off is accepted |
+| Read back | **ANSWERED**: `BP00;` and `BP01;` |
 
 ### 2.4 Contour — `CO`
 
 | Question | Why it matters |
 |---|---|
-| Same two-parameter shape as `BP`? (`CO00nnn;` on/off, `CO01nnn;` frequency) | Reuse or diverge |
-| Frequency range and units | Handle placement |
-| Is contour level a menu item (`EX`) rather than CAT? | Decides whether the handle has one axis or two |
-| Does contour apply in CW, or SSB only? | When to hide the handle |
+| Two-parameter shape | **ANSWERED**: `CO000001;`/`CO000000;` on/off (4-digit field), `CO01nnnn;` frequency |
+| Range and units | **ANSWERED**: 10–3200 Hz, 1 Hz wire resolution |
+| Level via menu? | **ANSWERED**: yes — level (−40…+20 dB) and width (1–11) are menu items already in the app's catalog; the handle has one CAT axis |
+| CW applicability | **BENCH** (APF `CO02…;` exists for CW — a future CW-view feature, not strip v1) |
 
 ### 2.5 Auto notch — DNF
 
 | Question | Why it matters |
 |---|---|
-| Is DNF reachable over CAT at all, and under which command? | §4's one-tap button depends on it |
-| Is it mutually exclusive with manual notch? | If so, the UI must present them as one segmented choice, not two toggles |
+| Reachable over CAT? | **ANSWERED**: yes — `BC00;`/`BC01;`, read `BC0;` |
+| Mutually exclusive with manual notch? | **BENCH** — drives segmented-vs-toggles; default the UI to independent toggles and revisit |
 
 ### 2.6 Behavioural questions no manual will answer
 
@@ -216,3 +221,80 @@ can be tested without a UI host.
    audible stepping and no command backlog.
 4. Tapping the strip notches an audible carrier in one gesture.
 5. VoiceOver can operate every parameter.
+
+---
+
+## 8. Implementation plan (2026-07-28)
+
+With §2's formats researched, the work splits into five phases. Phases 1–4
+run entirely against the simulator; phase 5 is the bench pass §1 demands
+before the strip ships to a radio-connected build.
+
+### Phase 1 — Simulator + wrappers (`FT891Kit`)
+
+1. Extend `FT891SimRig` with passband state: `shiftHz`, `widthIndex` (+ the
+   per-mode index tables), `naNarrow`, `notchOn/notchTens`, `contourOn/
+   contourHz`, `autoNotchOn`. Model rejection exactly: out-of-range → `?;`,
+   `IS`/`BP`/`CO` rejected in AM/FM, `SH` clamped by the mode table.
+2. `Sources/FT891Kit/Passband/PassbandTables.swift`: the §2.2 width tables
+   as data (`[FT891Mode: [Int]]` + `narrowMax`), with a total unit test
+   (every index maps, no gaps, round-trip index↔Hz).
+3. `Sources/FT891Kit/Commands/PassbandCommands.swift`: typed wrappers per
+   the researched formats — `readPassband()` (one call populating
+   `PassbandState` via `IS0;`/`SH0;`/`NA0;`/`BP00;`/`BP01;`/`CO00;`/
+   `CO01;`/`BC0;`), and per-parameter writers that clamp, snap (`IS` to
+   20 Hz pending bench, `BP` to 10 Hz), and order `NA` before `SH`.
+4. Tests: encode/decode round trips for every parameter; rejection paths;
+   `readPassband` against the sim.
+
+### Phase 2 — Coalescing + geometry (pure logic, no UI)
+
+1. `PassbandGeometry.swift`: x↔Hz mapping for a given strip width, edge
+   hit-zones (±22 pt), vertical-distance sensitivity curve. Unit-test the
+   round trips and that hit zones never overlap the body zone at the
+   narrowest SSB width.
+2. `PassbandWriteCoalescer`: latest-wins per parameter (the
+   `tune(to:)` pattern generalised), with a configurable minimum interval
+   (start 100 ms ≈ 10 writes/s — well under the 38400-baud budget; bench
+   tunes it in phase 5). Test: a synthetic 60 Hz drag stream produces
+   ≤ 1/interval writes and always ends on the final value.
+
+### Phase 3 — RigController + state plumbing
+
+1. `RigController` gains `passband: PassbandState?`, `refreshPassband()`
+   (called on ready, on mode change, and after USB re-attach — §2.6's
+   "does mode change reset it" is handled by always re-reading), and
+   per-parameter setters that route through the coalescer and reconcile
+   with a read-back **only after** the drag ends (optimistic during).
+2. Mode-capability map: which controls exist per mode (no `SH` in AM/FM,
+   contour SSB/CW only pending bench) — drives disabled states.
+
+### Phase 4 — The strip (`FT891UI`) + accessibility
+
+1. `PassbandStrip.swift` per §4: one `Canvas`, gestures per the §4.2
+   table, snap haptics on `SH` index changes, greyed elements per the
+   capability map. Auto-notch button beside the meter per §4.4
+   (`BC01;`/`BC00;` behind `rig.setAutoNotch(_:)`).
+2. Accessibility per §5: `accessibilityAdjustableAction` per element —
+   shift steps 20 Hz, width steps one `SH` index (spoken in Hz), notch
+   steps 10 Hz. This lands in the same PR as the gestures, not after.
+3. Placement: bottom third of `OperateView`, above `RXControlsDrawer`;
+   collapsed to a summary row when the mode supports nothing.
+
+### Phase 5 — Bench verification (blocks release, not development)
+
+On a real FT-891, in order: (1) one command of each format from §2's
+ANSWERED rows — confirm echo/readback and mark the reference doc rows
+verified; (2) the BENCH rows: `IS` CAT rounding, AM/FM rejection set,
+freq-while-off notch, `NA`↔`SH` reset behaviour, DNF/MN exclusivity;
+(3) §2.6 cadence: binary-search the write rate where the radio lags,
+set the coalescer interval to half that; (4) §7's definition of done —
+drag with no audible stepping, one-gesture notch of a real carrier.
+Findings go into `yaesu-cat-ft891.md` the same day they're measured.
+
+### Explicitly deferred
+
+- APF (`CO02…;` + `EX1201n;` width) — a CW-view feature.
+- Contour level/width editing from the strip (menu items; reachable
+  through the existing Settings tab meanwhile).
+- QMX: nothing here applies (read-only `FW`; no shift/notch/contour).

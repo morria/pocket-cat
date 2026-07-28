@@ -142,3 +142,65 @@ verify against the PDF + a live rig):
 - Always `TX0;` on teardown; also arm the failsafe so a dropped BLE link unkeys.
 - `ID;` → `ID0650;` confirms an FT-891 once CAT is talking at the right baud;
   use it as the baud-probe token.
+
+## Passband commands — `IS`, `SH`, `BP`, `BC`, `CO`
+
+**Provenance: researched 2026-07-28 from Hamlib master** (`rigs/yaesu/newcat.c`
+`is_ft891` branches; width tables from `ft991.c`, shared with the FT-891 by
+`ft891.c`), cross-checked against the FT-891 ext-param declarations. **Not yet
+verified against hardware** — treat each row as high-confidence but confirm on
+the bench before shipping UI that writes it (`docs/passband.md` §2), then mark
+it verified here.
+
+### `IS` — IF shift
+
+- **Set:** `IS0` + `P2` + signed 4-digit Hz + `;` where `P2` is `0` when the
+  value is 0 and `1` otherwise: `IS01+0250;`, `IS01-1000;`, clear `IS00+0000;`.
+- **Read:** `IS0;` → same shape back.
+- **Range:** ±1200 Hz (Hamlib `max_ifshift`). Step: the radio's front panel
+  steps 20 Hz — whether CAT rounds is a bench item.
+- Hamlib gates AM/FM rejection only on other models; assume the FT-891 also
+  rejects in AM/FM and disable in UI (bench-confirm).
+
+### `SH` — width (index, not Hz)
+
+- **Set (FT-891-specific):** `SH0` + `1` + 2-digit index + `;` — the extra `1`
+  is an "on" digit this rig requires: `SH0112;`. **Read:** `SH0;`.
+- **Set `NA` first**: narrow mode must be correct *before* the width write
+  (Hamlib does exactly this ordering). Widths ≤ `narrow_max` need `NA01;`,
+  wider need `NA00;`.
+- **Index → Hz tables** (shared FT-891/FT-991; index 0 = rig default):
+
+| Mode family | narrow_max | idx 1… |
+|---|---|---|
+| CW / RTTY / DATA | 500 | 50, 100, 150, 200, 250, 300, 350, 400, 450, 500, 800, 1200, 1400, 1700, 2000, 2400, 3000 (idx 1–17) |
+| SSB | 1800 | 200, 400, 600, 850, 1100, 1350, 1500, 1650, 1800, 1950, 2100, 2200, 2300, 2400, 2500, 2600, 2700, 2800, 2900, 3000, 3200 (idx 1–21) |
+| AM | — | no `SH`; width = `NA` narrow toggle (9000/6000) |
+| FM | — | no `SH`; `NA` toggle (16000/9000) |
+
+### `BP` — manual notch
+
+- **On/off:** `BP00001;` on, `BP00000;` off. **Read:** `BP00;`.
+- **Frequency:** `BP01` + 3 digits + `;` in **10 Hz units**, clamped 001–320
+  (= 10–3200 Hz): `BP01123;` = 1230 Hz. **Read:** `BP01;`.
+- Hamlib writes freq and on/off independently (no required ordering) —
+  bench-confirm the radio accepts freq-while-off.
+
+### `BC` — auto notch (DNF)
+
+- `BC00;` off, `BC01;` on. **Read:** `BC0;`. Mutual exclusivity with the
+  manual notch is undocumented — bench item.
+
+### `CO` — contour (and APF)
+
+- **Contour on/off:** `CO00` + 4-digit value + `;` → `CO000001;` on,
+  `CO000000;` off. **Read:** `CO00;`.
+- **Contour frequency:** `CO01` + 4-digit Hz + `;`, range 10–3200 Hz,
+  1 Hz wire resolution: `CO010800;`.
+- **Level (−40…+20 dB) and width (1–11)** are *menu items*, not CAT ops, on
+  this rig (Hamlib ext params; the app's menu catalog already carries the
+  CONTOUR LEVEL/WIDTH items) — the strip's handle therefore has one CAT axis
+  (frequency) plus menu-backed depth.
+- **APF** (audio peak filter, CW): `CO02` + 4-digit on/off → `CO020001;`;
+  APF width is menu `EX1201n;`. Noted for a future CW view; not part of the
+  passband strip v1.
