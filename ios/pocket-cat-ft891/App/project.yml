@@ -20,7 +20,10 @@ targets:
     info:
       path: FT891App/Info.plist
       properties:
-        CFBundleDisplayName: FT-891
+        CFBundleDisplayName: Pocket Cat FT891
+        # Declared so TestFlight doesn't ask on every upload. The app uses
+        # only Apple's BLE stack — no custom or non-exempt cryptography.
+        ITSAppUsesNonExemptEncryption: false
         UILaunchScreen: {}
         NSBluetoothAlwaysUsageDescription: >-
           FT-891 connects to your Pocket Cat CAT bridge over Bluetooth to
@@ -46,6 +49,9 @@ targets:
     settings:
       base:
         SWIFT_VERSION: "6.0"
+        PRODUCT_BUNDLE_IDENTIFIER: com.w2asm
+        MARKETING_VERSION: "1.0"
+        CURRENT_PROJECT_VERSION: "1"
         DEVELOPMENT_TEAM: 7Q2SS8772K
         CODE_SIGN_STYLE: Automatic
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
