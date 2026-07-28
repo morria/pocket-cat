@@ -350,13 +350,25 @@ public struct QMXSimRig: Sendable {
         return replies
     }
 
+    /// The TS-480 `IF` composite, field for field:
+    ///
+    ///     IF f(11) ␣(5) rit(5) ritOn xit bank ch(2) tx mode vfo scan
+    ///        split tone toneNo(2) ␣ ;
+    ///
+    /// The flag block between the RIT value and the TX flag is **five**
+    /// characters — RIT-on, XIT-on, bank, and a two-digit channel. This
+    /// used to emit four, which put the TX flag one place early: the
+    /// parser then read the mode digit as the TX flag, so every `IF` poll
+    /// reported "receiving" moments after the radio was keyed, and the app
+    /// flashed out of transmit while the operator was still holding PTT.
     func ifAnswer() -> String {
         let freq = String(format: "%011d", vfoA)
         let rit = String(format: "%@%04d", ritOffset < 0 ? "-" : "+",
                          abs(ritOffset))
         let tx = transmitting ? "1" : "0"
         let sp = split ? "1" : "0"
-        return "IF\(freq)     \(rit)\(ritOn ? 1 : 0)000\(tx)\(modeCode)0"
+        let flags = "\(ritOn ? 1 : 0)0000"   // ritOn, xit, bank, ch(2)
+        return "IF\(freq)     \(rit)\(flags)\(tx)\(modeCode)0"
             + "0\(sp)00 ;"
     }
 

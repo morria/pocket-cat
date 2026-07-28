@@ -52,14 +52,26 @@ struct VFOModeTests {
         #expect(rig.splitEnabled)
     }
 
-    /// The mode row was blank on connect because `state.mode` only fills
-    /// after the library's first poll.
+    /// The mode row was blank on connect: `state.mode` only fills after
+    /// the library's first poll, so the app reads MD during refresh.
     @Test @MainActor func modeIsKnownAfterConnectNotAfterTheFirstPoll()
         async throws {
-        let (rig, transport) = try await makeRig()
-        await transport.setRig { $0.modeCode = "6" } // DIGI
+        // Mode set before the session starts, so the polled state and the
+        // explicit read agree — mutating it behind the app's back would
+        // only test which of the two is staler.
+        let transport = QMXSimTransport(rig: {
+            var rig = QMXSimRig()
+            rig.modeCode = "6" // DIGI
+            return rig
+        }())
+        let session = TransceiverSession(transport: transport)
+        try await session.start()
+        let rig = RigController()
+        rig.attachForTesting(session)
+
         await rig.refreshSecondaryState()
         #expect(rig.currentMode == .digi)
         #expect(rig.currentMode?.family == .digi)
+        await session.disconnect()
     }
 }
