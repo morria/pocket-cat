@@ -19,9 +19,9 @@ struct WSPRView: View {
         NavigationStack {
             Form {
                 statusSection
-                Section("Station") {
+                Section {
                     LabeledContent("Callsign") {
-                        TextField("M0ABC", text: $settings.wsprCallsign)
+                        TextField("M0ABC", text: $settings.callsign)
                             .multilineTextAlignment(.trailing)
                             .autocorrectionDisabled()
                             #if os(iOS)
@@ -29,7 +29,7 @@ struct WSPRView: View {
                             #endif
                     }
                     LabeledContent("Grid") {
-                        TextField("IO91", text: $settings.wsprGrid)
+                        TextField("IO91", text: $settings.grid)
                             .multilineTextAlignment(.trailing)
                             .autocorrectionDisabled()
                             #if os(iOS)
@@ -41,6 +41,11 @@ struct WSPRView: View {
                             Text(Self.powerLabel(dbm)).tag(dbm)
                         }
                     }
+                } header: {
+                    Text("Station")
+                } footer: {
+                    Text("Callsign and grid are shared with the CW screen's "
+                         + "message templates.")
                 }
 
                 Section {
@@ -159,8 +164,8 @@ struct WSPRView: View {
 
     private func start() {
         beacon.session = rig.session
-        beacon.start(callsign: settings.wsprCallsign,
-                     grid: settings.wsprGrid,
+        beacon.start(callsign: settings.callsign,
+                     grid: settings.grid,
                      powerDBm: settings.wsprPowerDBm,
                      band: settings.wsprBand)
     }

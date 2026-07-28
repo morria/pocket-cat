@@ -13,8 +13,13 @@ public final class AppSettings {
     private enum Key {
         static let keepScreenAwake = "qmx.keepScreenAwake"
         static let syncClockOnConnect = "qmx.syncClockOnConnect"
-        static let callsign = "qmx.wspr.callsign"
-        static let grid = "qmx.wspr.grid"
+        static let callsign = "qmx.station.callsign"
+        static let grid = "qmx.station.grid"
+        static let operatorName = "qmx.station.name"
+        static let qth = "qmx.station.qth"
+        // Pre-station-identity keys, migrated once on first launch.
+        static let legacyCallsign = "qmx.wspr.callsign"
+        static let legacyGrid = "qmx.wspr.grid"
         static let power = "qmx.wspr.powerDBm"
         static let band = "qmx.wspr.band"
         static let slotInterval = "qmx.wspr.slotInterval"
@@ -36,16 +41,34 @@ public final class AppSettings {
         }
     }
 
-    // MARK: - WSPR beacon
+    // MARK: - Station identity
+    //
+    // Shared by every feature that needs to say who you are — CW
+    // templates, the WSPR beacon — so it is typed once.
 
-    public var wsprCallsign: String {
-        didSet { defaults.set(wsprCallsign, forKey: Key.callsign) }
+    public var callsign: String {
+        didSet { defaults.set(callsign, forKey: Key.callsign) }
     }
 
     /// Four-character Maidenhead square, e.g. `IO91`.
-    public var wsprGrid: String {
-        didSet { defaults.set(wsprGrid, forKey: Key.grid) }
+    public var grid: String {
+        didSet { defaults.set(grid, forKey: Key.grid) }
     }
+
+    public var operatorName: String {
+        didSet { defaults.set(operatorName, forKey: Key.operatorName) }
+    }
+
+    public var qth: String {
+        didSet { defaults.set(qth, forKey: Key.qth) }
+    }
+
+    public var station: StationIdentity {
+        StationIdentity(callsign: callsign, name: operatorName, qth: qth,
+                        grid: grid)
+    }
+
+    // MARK: - WSPR beacon
 
     public var wsprPowerDBm: Int {
         didSet { defaults.set(wsprPowerDBm, forKey: Key.power) }
@@ -67,7 +90,7 @@ public final class AppSettings {
 
     /// The beacon is only sendable if the callsign and grid parse.
     public var wsprIsConfigured: Bool {
-        (try? WSPREncoder.symbols(callsign: wsprCallsign, grid: wsprGrid,
+        (try? WSPREncoder.symbols(callsign: callsign, grid: grid,
                                   powerDBm: wsprPowerDBm)) != nil
     }
 
@@ -76,8 +99,14 @@ public final class AppSettings {
         keepScreenAwake = defaults.bool(forKey: Key.keepScreenAwake)
         syncClockOnConnect = defaults.object(
             forKey: Key.syncClockOnConnect) as? Bool ?? true
-        wsprCallsign = defaults.string(forKey: Key.callsign) ?? ""
-        wsprGrid = defaults.string(forKey: Key.grid) ?? ""
+        // Adopt the WSPR-only fields the first time round, so an operator
+        // who already set them doesn't have to type them again.
+        callsign = defaults.string(forKey: Key.callsign)
+            ?? defaults.string(forKey: Key.legacyCallsign) ?? ""
+        grid = defaults.string(forKey: Key.grid)
+            ?? defaults.string(forKey: Key.legacyGrid) ?? ""
+        operatorName = defaults.string(forKey: Key.operatorName) ?? ""
+        qth = defaults.string(forKey: Key.qth) ?? ""
         wsprPowerDBm = defaults.object(forKey: Key.power) as? Int ?? 23
         wsprBandName = defaults.string(forKey: Key.band) ?? "20 m"
         wsprSlotInterval = defaults.object(

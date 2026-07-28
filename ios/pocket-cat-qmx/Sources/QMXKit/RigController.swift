@@ -31,6 +31,10 @@ public final class RigController {
     /// How far the radio's clock was out at the last sync, in seconds
     /// (positive = the radio was ahead). Nil until a sync has happened.
     public private(set) var clockDriftSeconds: Int?
+    /// The bands this radio's filter board actually covers, read from its
+    /// `Band config.` table at connect. Nil means "not established" — show
+    /// every band rather than hiding ones the radio may well have.
+    public private(set) var supportedBands: [SupportedBand]?
     /// TX-time meters, polled only while transmitting.
     public private(set) var swr: Double?
     public private(set) var agcDB: Int?
@@ -173,6 +177,7 @@ public final class RigController {
             if AppSettings.shared.syncClockOnConnect {
                 await syncClock()
             }
+            await readSupportedBands()
         } catch {
             notify(friendlyMessage(for: error))
         }
@@ -183,6 +188,21 @@ public final class RigController {
     func attachForTesting(_ session: TransceiverSession) {
         self.session = session
         self.state = session.state
+    }
+
+    /// Test seam for band filtering without a full connect.
+    func setSupportedBandsForTesting(_ bands: [SupportedBand]?) {
+        supportedBands = bands
+    }
+
+    // MARK: - Band support
+
+    /// Asks the radio which bands it has. A QMX is built around one filter
+    /// board, so this is a property of the unit, not of the model.
+    public func readSupportedBands() async {
+        guard let session else { return }
+        supportedBands = try? await QMXBandSupport.read(
+            using: QMXMenuClient(session: session))
     }
 
     // MARK: - Clock

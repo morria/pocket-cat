@@ -14,6 +14,9 @@ public actor FT891SimTransport: BridgeTransport {
     private var rig: FT891SimRig
     private var linkBaud: UInt32 = 4800
     private var connected = false
+    /// Complete CAT commands received, for ordering assertions in tests.
+    public private(set) var journalEntries: [String] = []
+    private var journalBuffer = ""
 
     public init(rig: FT891SimRig = FT891SimRig()) {
         (events, continuation) = AsyncStream.makeStream(
@@ -34,6 +37,11 @@ public actor FT891SimTransport: BridgeTransport {
 
     public func writeCAT(_ data: Data) async throws {
         guard connected else { throw CATBridgeError.connectionLost }
+        journalBuffer += String(decoding: data, as: UTF8.self)
+        while let end = journalBuffer.firstIndex(of: ";") {
+            journalEntries.append(String(journalBuffer[...end]))
+            journalBuffer.removeSubrange(...end)
+        }
         // Wrong UART baud ↔ radio CAT RATE: silence (the probe walks on).
         guard linkBaud == rig.catRate else { return }
         let replies = rig.feed(data)
@@ -167,6 +175,16 @@ public struct FT891SimRig: Sendable {
     /// CW keyer memories (KM), 1–5.
     public var keyerMemories: [Int: String] = [:]
 
+    // Passband chain (docs/passband.md; formats per yaesu-cat-ft891.md
+    // "Passband commands"). IS/SH/BP/CO reject in AM/FM like the real rig
+    // is assumed to (bench item) — the tests pin that behaviour.
+    public var shiftHz = 0
+    public var notchOn = false
+    public var notchTens = 100      // BP01 units: 10 Hz steps
+    public var contourOn = false
+    public var contourHz = 800
+    public var autoNotchOn = false
+
     var pending = ""
     var tuneReadsRemaining = 0
 
@@ -208,8 +226,97 @@ public struct FT891SimRig: Sendable {
         return "IF001\(freq)\(clar)\(rxClar)0\(modeCode)000000;"
     }
 
+    var modeIsAMorFM: Bool { "45BD".contains(modeCode) }
+
+    /// IS/SH/BP/CO handling; returns nil when the command isn't passband.
+    private mutating func respondPassband(body: String) -> String?? {
+        // Reads (and writes, below) reject in AM/FM like the real radio is
+        // assumed to; BC is the exception and works everywhere.
+        if modeIsAMorFM,
+           ["IS0", "SH0", "BP00", "BP01", "CO00", "CO01"].contains(body) {
+            return "?;"
+        }
+        switch body {
+        case "IS0":
+            return "IS0\(shiftHz == 0 ? 0 : 1)"
+                + String(format: "%+05d;", shiftHz)
+        case "SH0":
+            return String(format: "SH01%02d;", settings["SH0"] ?? 0)
+        case "BP00":
+            return "BP00\(notchOn ? "001" : "000");"
+        case "BP01":
+            return String(format: "BP01%03d;", notchTens)
+        case "CO00":
+            return "CO00\(contourOn ? "0001" : "0000");"
+        case "CO01":
+            return String(format: "CO01%04d;", contourHz)
+        case "BC0":
+            return "BC0\(autoNotchOn ? 1 : 0);"
+        default:
+            break
+        }
+
+        // Sets. BC works in every mode; the rest reject in AM/FM.
+        if body.hasPrefix("BC0"), body.count == 4 {
+            autoNotchOn = body.last != "0"
+            return String?.none
+        }
+        guard !modeIsAMorFM || !(body.hasPrefix("IS0") || body.hasPrefix("SH0")
+            || body.hasPrefix("BP0") || body.hasPrefix("CO0")) else {
+            if body.hasPrefix("IS0") || body.hasPrefix("SH0")
+                || body.hasPrefix("BP0") || body.hasPrefix("CO0") {
+                return "?;"
+            }
+            return nil
+        }
+        if body.hasPrefix("IS0"), body.count == 9,
+           let hz = Int(body.dropFirst(4)) {
+            let on = body.dropFirst(3).first
+            guard abs(hz) <= 1200, on == "0" || on == "1" else { return "?;" }
+            shiftHz = on == "0" ? 0 : hz
+            return String?.none
+        }
+        if body.hasPrefix("SH01"), body.count == 6,
+           let index = Int(body.dropFirst(4)) {
+            let family = "12".contains(modeCode)
+                ? PassbandTables.ssbFamily : PassbandTables.cwFamily
+            guard family.indices.contains(index) else { return "?;" }
+            settings["SH0"] = index
+            return String?.none
+        }
+        if body.hasPrefix("BP00"), body.count == 7,
+           let value = Int(body.dropFirst(4)) {
+            guard value == 0 || value == 1 else { return "?;" }
+            notchOn = value == 1
+            return String?.none
+        }
+        if body.hasPrefix("BP01"), body.count == 7,
+           let tens = Int(body.dropFirst(4)) {
+            guard (1...320).contains(tens) else { return "?;" }
+            notchTens = tens
+            return String?.none
+        }
+        if body.hasPrefix("CO00"), body.count == 8,
+           let value = Int(body.dropFirst(4)) {
+            guard value == 0 || value == 1 else { return "?;" }
+            contourOn = value == 1
+            return String?.none
+        }
+        if body.hasPrefix("CO01"), body.count == 8,
+           let hz = Int(body.dropFirst(4)) {
+            guard (10...3200).contains(hz) else { return "?;" }
+            contourHz = hz
+            return String?.none
+        }
+        return nil
+    }
+
     // swiftlint:disable:next cyclomatic_complexity
     public mutating func respond(to cmd: String) -> String? {
+        let trimmed = String(cmd.dropLast())
+        if let handled = respondPassband(body: trimmed) {
+            return handled
+        }
         switch cmd {
         case "ID;": return "ID0650;"
         case "IF;": return ifAnswer()

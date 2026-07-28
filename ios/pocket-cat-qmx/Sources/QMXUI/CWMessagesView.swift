@@ -12,8 +12,9 @@ struct CWMessagesView: View {
     @State private var messenger = CWMessenger()
     @State private var draft = ""
     @FocusState private var composeFocused: Bool
-
-    private static let macros = ["CQ CQ DE", "RST 599", "73", "TU", "AGN?"]
+    @Bindable private var settings = AppSettings.shared
+    /// Tokens a tapped template needed but the operator hasn't filled in.
+    @State private var missingFields: [String] = []
 
     var body: some View {
         VStack(spacing: 0) {
@@ -29,14 +30,6 @@ struct CWMessagesView: View {
         .toolbar {
             ToolbarItem(placement: .principal) { ConnectionStatusButton() }
             ToolbarItem(placement: .primaryAction) { menu }
-            // The keyboard covers the tab bar, so without a way out of the
-            // field there is no way off this screen.
-            #if os(iOS)
-            ToolbarItemGroup(placement: .keyboard) {
-                Spacer()
-                Button("Done") { composeFocused = false }
-            }
-            #endif
         }
         .task {
             messenger.session = rig.session
@@ -132,38 +125,120 @@ struct CWMessagesView: View {
 
     // MARK: - Compose
 
+    /// Chips fill the field; they never send by themselves. Callsigns
+    /// spotted in the copy come first, so a reply is one tap.
     private var macroStrip: some View {
-        ScrollView(.horizontal) {
-            HStack(spacing: 8) {
-                ForEach(Self.macros, id: \.self) { macro in
-                    Button {
-                        draft = draft.isEmpty ? macro : draft + " " + macro
-                        composeFocused = true
-                    } label: {
-                        Text(macro)
-                            .font(.footnote.weight(.medium))
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 6)
-                            .background(Color.secondaryFill, in: Capsule())
-                    }
-                    .buttonStyle(.plain)
-                }
+        VStack(spacing: 4) {
+            if !missingFields.isEmpty {
+                Label("Set \(StationIdentity.describe(missingFields)) in "
+                      + "Settings to use that template.",
+                      systemImage: "exclamationmark.circle.fill")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 12)
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
+            ScrollView(.horizontal) {
+                HStack(spacing: 7) {
+                    ForEach(heardCallsigns, id: \.self) { call in
+                        Button {
+                            replyTo(call)
+                        } label: {
+                            Label(call, systemImage:
+                                    "antenna.radiowaves.left.and.right")
+                        }
+                        .font(.footnote.weight(.semibold))
+                        .buttonStyle(.borderedProminent)
+                        .buttonBorderShape(.capsule)
+                        .controlSize(.small)
+                    }
+                    ForEach(visibleTemplates) { template in
+                        Button(template.label) { apply(template) }
+                            .font(.footnote.weight(.medium))
+                            .buttonStyle(.bordered)
+                            .buttonBorderShape(.capsule)
+                            .controlSize(.small)
+                            .tint(.secondary)
+                    }
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+            }
+            .scrollIndicators(.hidden)
         }
-        .scrollIndicators(.hidden)
+    }
+
+    /// Templates needing a station to address are hidden until one is heard.
+    private var visibleTemplates: [CWTemplate] {
+        CWTemplate.defaults.filter {
+            !$0.needsTheirCall || !heardCallsigns.isEmpty
+        }
+    }
+
+    private var heardCallsigns: [String] {
+        CallsignSpotter.recentCallsigns(
+            in: messenger.messages.filter { $0.direction == .received }
+                .map(\.text),
+            excluding: settings.callsign)
+    }
+
+    private func apply(_ template: CWTemplate) {
+        let expanded = settings.station.expand(template.text,
+                                               theirCall: heardCallsigns.first)
+        guard expanded.missing.isEmpty else {
+            missingFields = expanded.missing
+            return
+        }
+        missingFields = []
+        draft = expanded.text
+        composeFocused = true
+    }
+
+    private func replyTo(_ call: String) {
+        let expanded = settings.station.expand(
+            "{THEIRCALL} DE {CALL} {CALL} K", theirCall: call)
+        missingFields = expanded.missing
+        guard expanded.missing.isEmpty else { return }
+        draft = expanded.text
+        composeFocused = true
     }
 
     private var composeBar: some View {
         HStack(alignment: .bottom, spacing: 8) {
-            TextField("CW message", text: $draft, axis: .vertical)
+            // In-layout escape from the keyboard. The keyboard covers the
+            // tab bar, so without this the screen is a dead end — and a
+            // keyboard-toolbar button alone proved too easy to miss.
+            if composeFocused {
+                Button {
+                    composeFocused = false
+                } label: {
+                    Image(systemName: "keyboard.chevron.compact.down")
+                        .font(.system(size: 22))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 34, height: 34)
+                }
+                .accessibilityLabel("Hide keyboard")
+                .transition(.opacity)
+            }
+
+            TextField(fieldPrompt, text: $draft, axis: .vertical)
+                .font(.callout.monospaced())
                 .lineLimit(1...4)
                 #if os(iOS)
                 .textInputAutocapitalization(.characters)
                 #endif
                 .autocorrectionDisabled()
                 .focused($composeFocused)
+                #if os(iOS)
+                // Attached to the field itself: keyboard toolbars are more
+                // reliable here than on an ancestor container.
+                .toolbar {
+                    ToolbarItemGroup(placement: .keyboard) {
+                        Spacer()
+                        Button("Done") { composeFocused = false }
+                    }
+                }
+                #endif
                 .padding(.horizontal, 14)
                 .padding(.vertical, 8)
                 .overlay(
@@ -172,18 +247,53 @@ struct CWMessagesView: View {
                 .onSubmit(send)
 
             Button(action: send) {
-                Image(systemName: "arrow.up.circle.fill")
+                // An empty field turns Send into "repeat last" — the
+                // workhorse of calling CQ (Dits does the same).
+                Image(systemName: canRepeat ? "repeat.circle.fill"
+                                            : "arrow.up.circle.fill")
                     .font(.system(size: 30))
                     .symbolRenderingMode(.palette)
-                    .foregroundStyle(.white, canSend ? Color.accentColor
-                                                     : Color.secondary.opacity(0.4))
+                    .foregroundStyle(.white,
+                                     (canSend || canRepeat)
+                                        ? Color.accentColor
+                                        : Color.secondary.opacity(0.4))
             }
-            .disabled(!canSend)
-            .accessibilityLabel("Send as CW")
+            .disabled(!canSend && !canRepeat)
+            .accessibilityLabel(canRepeat ? "Repeat last message" : "Send as CW")
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
         .background(.bar)
+        .animation(.snappy(duration: 0.15), value: composeFocused)
+        .safeAreaInset(edge: .top, spacing: 0) { onAirEstimate }
+    }
+
+    /// How long the radio will be keyed. `KY` is buffered and reports no
+    /// completion, so an estimate is the only warning before a long send.
+    @ViewBuilder
+    private var onAirEstimate: some View {
+        let seconds = CWTiming.seconds(draft, wpm: rig.keyerSpeed ?? 20)
+        if seconds > 0 {
+            Text("≈ \(Int(seconds.rounded()))s on air at "
+                 + "\(rig.keyerSpeed ?? 20) WPM")
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+                .frame(maxWidth: .infinity, alignment: .trailing)
+                .padding(.horizontal, 14)
+                .padding(.bottom, 2)
+        }
+    }
+
+    private var fieldPrompt: String {
+        "Message · \(rig.keyerSpeed ?? 20) WPM"
+    }
+
+    private var canRepeat: Bool {
+        !canSend && lastSentText != nil
+    }
+
+    private var lastSentText: String? {
+        messenger.messages.last { $0.direction == .sent }?.text
     }
 
     private var canSend: Bool {
@@ -191,9 +301,12 @@ struct CWMessagesView: View {
     }
 
     private func send() {
-        guard canSend else { return }
-        let outgoing = draft
-        draft = ""
+        let outgoing = canSend ? draft : (lastSentText ?? "")
+        guard !outgoing.trimmingCharacters(in: .whitespaces).isEmpty else {
+            return
+        }
+        if canSend { draft = "" }
+        missingFields = []
         Task { await messenger.send(outgoing) }
     }
 

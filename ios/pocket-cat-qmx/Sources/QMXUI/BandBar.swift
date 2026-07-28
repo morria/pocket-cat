@@ -18,7 +18,7 @@ struct BandBar: View {
         ScrollViewReader { proxy in
             ScrollView(.horizontal) {
                 HStack(spacing: 8) {
-                    ForEach(BandPlan.all) { band in
+                    ForEach(bands) { band in
                         chip(for: band)
                             .id(band.id)
                     }
@@ -76,6 +76,17 @@ struct BandBar: View {
             ?? "Tunes to the band's default frequency")
     }
 
+    /// Only the bands this radio has, once it has told us. Until then,
+    /// every band — hiding one the operator actually owns is worse than
+    /// showing one they don't.
+    private var bands: [Band] {
+        guard let supported = rig.supportedBands, !supported.isEmpty else {
+            return BandPlan.all
+        }
+        let planned = supported.planBands
+        return planned.isEmpty ? BandPlan.all : planned
+    }
+
     private var currentBand: Band? {
         rig.state?.frequency.flatMap { BandPlan.band(containing: $0.hertz) }
     }
@@ -92,7 +103,10 @@ struct BandBar: View {
             }
             return
         }
-        rig.tune(to: Frequency(hz: band.defaultHz))
+        // The radio's own configured centre for the band beats the plan's
+        // generic default — it is where this unit is set up to land.
+        let centre = rig.supportedBands?.entry(for: band)?.centerHz
+        rig.tune(to: Frequency(hz: centre ?? band.defaultHz))
     }
 
     static func mhz(_ hz: UInt64) -> String {

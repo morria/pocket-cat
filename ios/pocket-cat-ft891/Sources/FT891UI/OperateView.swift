@@ -11,6 +11,7 @@ struct OperateView: View {
     @State private var showingSettings = false
     @State private var showingMemories = false
     @State private var powerEditing: Double?
+    @State private var passband = PassbandController()
 
     private var isTransmitting: Bool { rig.state?.isTransmitting ?? false }
 
@@ -25,12 +26,18 @@ struct OperateView: View {
                     TXMeterCluster()
                         .padding(.horizontal)
                 } else {
-                    SMeterView(raw: rig.state?.sMeter)
-                        .padding(.horizontal)
+                    HStack(alignment: .center, spacing: 10) {
+                        SMeterView(raw: rig.state?.sMeter)
+                        // One-tap carrier fix beside the meter
+                        // (docs/passband.md §4.4).
+                        AutoNotchButton(passband: passband)
+                    }
+                    .padding(.horizontal)
                 }
 
                 powerRow
                 utilityRow
+                PassbandStrip(passband: passband)
                 RXControlsDrawer()
                 PTTButton()
                     .padding(.top, 4)
