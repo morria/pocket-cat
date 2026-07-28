@@ -10,6 +10,7 @@ struct WSPRView: View {
     @Bindable private var settings = AppSettings.shared
     @State private var beacon = WSPRBeacon()
     @State private var now = Date()
+    @State private var showingSettings = false
 
     private let tick = Timer.publish(every: 1, on: .main, in: .common)
         .autoconnect()
@@ -17,21 +18,35 @@ struct WSPRView: View {
     var body: some View {
         Form {
                 statusSection
-                if !settings.wsprIsConfigured {
-                    Section {
-                        Label("Set your callsign and grid in Settings.",
-                              systemImage: "person.crop.circle.badge.exclamationmark")
-                            .foregroundStyle(.orange)
-                    }
-                }
-
                 Section {
-                    LabeledContent("Callsign",
-                                   value: settings.callsign.isEmpty
-                                        ? "—" : settings.callsign)
-                    LabeledContent("Grid",
-                                   value: settings.grid.isEmpty
-                                        ? "—" : Maidenhead.square(settings.grid))
+                    if settings.wsprIsConfigured {
+                        LabeledContent("Callsign", value: settings.callsign)
+                        LabeledContent("Grid",
+                                       value: Maidenhead.square(settings.grid))
+                        Button("Edit in Settings", systemImage: "gear") {
+                            showingSettings = true
+                        }
+                    } else {
+                        // One row, not a banner plus the empty values it is
+                        // complaining about — and it goes where it points.
+                        Button {
+                            showingSettings = true
+                        } label: {
+                            Label {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("Set your callsign and grid")
+                                    Text("Required before the beacon can "
+                                         + "transmit")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                            } icon: {
+                                Image(systemName:
+                                        "person.crop.circle.badge.exclamationmark")
+                                    .foregroundStyle(.orange)
+                            }
+                        }
+                    }
                     Picker("Power", selection: $settings.wsprPowerDBm) {
                         ForEach(Self.powerLevels, id: \.self) { dbm in
                             Text(Self.powerLabel(dbm)).tag(dbm)
@@ -39,9 +54,6 @@ struct WSPRView: View {
                     }
                 } header: {
                     Text("Station")
-                } footer: {
-                    Text("Callsign and grid live in Settings — they're "
-                         + "shared with the CW templates.")
                 }
 
                 Section {
@@ -76,11 +88,9 @@ struct WSPRView: View {
                             .disabled(!canStart)
                     }
                 } footer: {
-                    Text(canStart
-                         ? "The radio transmits unattended until you stop "
-                           + "it. Check the antenna and power first."
-                         : "Enter a callsign and a four-character grid, and "
-                           + "connect to a radio.")
+                    Text(startBlockedReason
+                         ?? "The radio transmits unattended until you stop "
+                            + "it. Check the antenna and power first.")
                 }
             }
         .navigationTitle("WSPR")
@@ -99,6 +109,7 @@ struct WSPRView: View {
             beacon.slotInterval = settings.wsprSlotInterval
         }
         .onChange(of: rig.connectionPhase) { beacon.session = rig.session }
+        .sheet(isPresented: $showingSettings) { AppSettingsView() }
     }
 
     // MARK: - Status
@@ -151,8 +162,27 @@ struct WSPRView: View {
         return String(format: "%.6f MHz", Double(hz) / 1_000_000)
     }
 
-    private var canStart: Bool {
-        rig.session != nil && settings.wsprIsConfigured
+    private var canStart: Bool { startBlockedReason == nil }
+
+    /// Why Start is unavailable — a disabled button with no explanation is
+    /// a dead end.
+    private var startBlockedReason: String? {
+        if rig.session == nil {
+            return "Connect to a bridge first — the beacon needs a radio."
+        }
+        if settings.callsign.trimmingCharacters(in: .whitespaces).isEmpty {
+            return "Set your callsign in Settings."
+        }
+        if !Maidenhead.isValid(settings.grid) {
+            return settings.grid.isEmpty
+                ? "Set your grid in Settings, or use your current location."
+                : "“\(settings.grid)” isn't a Maidenhead locator — expected "
+                  + "something like IO91 or IO91wm."
+        }
+        if !settings.wsprIsConfigured {
+            return "That callsign can't be encoded into a WSPR message."
+        }
+        return nil
     }
 
     private func start() {

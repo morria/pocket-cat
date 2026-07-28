@@ -1,6 +1,7 @@
 // Maidenhead conversion. Grids are what WSPR carries and what CW templates
 // announce, so a wrong one is broadcast rather than merely displayed.
 
+import Foundation
 import Testing
 @testable import QMXKit
 
@@ -68,5 +69,52 @@ struct MaidenheadTests {
                 }
             }
         }
+    }
+}
+
+@Suite("WSPR configuration gate")
+struct WSPRConfigurationTests {
+    @MainActor
+    func settings() -> AppSettings {
+        AppSettings(defaults: UserDefaults(
+            suiteName: "test.\(UUID().uuidString)")!)
+    }
+
+    /// GPS fills six characters and WSPR carries four. Checking the raw
+    /// grid refused a perfectly good locator and greyed out Start Beacon.
+    @Test @MainActor func aSixCharacterGridIsAcceptable() {
+        let s = settings()
+        s.callsign = "M0ABC"
+        s.grid = "IO91wm"
+        #expect(s.wsprIsConfigured)
+    }
+
+    @Test @MainActor func fourCharacterGridsStillWork() {
+        let s = settings()
+        s.callsign = "M0ABC"
+        s.grid = "IO91"
+        #expect(s.wsprIsConfigured)
+    }
+
+    @Test @MainActor func incompleteOrJunkStationsAreRefused() {
+        let s = settings()
+        #expect(!s.wsprIsConfigured)          // nothing set
+
+        s.callsign = "M0ABC"
+        #expect(!s.wsprIsConfigured)          // no grid
+
+        s.grid = "NOTAGRID"
+        #expect(!s.wsprIsConfigured)
+
+        s.grid = "IO91"
+        s.callsign = "NOTACALL"
+        #expect(!s.wsprIsConfigured)
+    }
+
+    @Test @MainActor func surroundingWhitespaceIsForgiven() {
+        let s = settings()
+        s.callsign = " M0ABC "
+        s.grid = "IO91wm"
+        #expect(s.wsprIsConfigured)
     }
 }

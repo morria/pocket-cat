@@ -89,9 +89,16 @@ public final class AppSettings {
     }
 
     /// The beacon is only sendable if the callsign and grid parse.
+    /// Whether the beacon has everything it needs.
+    ///
+    /// Must square the grid exactly as the beacon does: a locator from GPS
+    /// is six characters and WSPR carries four, so checking the raw value
+    /// would refuse a perfectly good grid.
     public var wsprIsConfigured: Bool {
-        (try? WSPREncoder.symbols(callsign: callsign, grid: grid,
-                                  powerDBm: wsprPowerDBm)) != nil
+        (try? WSPREncoder.symbols(
+            callsign: callsign.trimmingCharacters(in: .whitespaces),
+            grid: Maidenhead.square(grid),
+            powerDBm: wsprPowerDBm)) != nil
     }
 
     public init(defaults: UserDefaults = .standard) {
