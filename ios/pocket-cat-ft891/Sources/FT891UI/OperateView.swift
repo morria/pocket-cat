@@ -7,7 +7,6 @@ import SwiftUI
 
 struct OperateView: View {
     @Environment(RigController.self) private var rig
-    @State private var showingTuneConfirm = false
     @State private var showingSettings = false
     @State private var showingMemories = false
     @State private var powerEditing: Double?
@@ -64,14 +63,6 @@ struct OperateView: View {
         }
         .sheet(isPresented: $showingSettings) { AppSettingsView() }
         .sheet(isPresented: $showingMemories) { MemoriesView() }
-        .overlay {
-            if isTransmitting {
-                RoundedRectangle(cornerRadius: 0)
-                    .strokeBorder(Color.red.opacity(0.8), lineWidth: 4)
-                    .ignoresSafeArea()
-                    .allowsHitTesting(false)
-            }
-        }
         .task { await rig.refreshSecondaryState() }
     }
 
@@ -108,7 +99,7 @@ struct OperateView: View {
     private var utilityRow: some View {
         HStack(spacing: 10) {
             Button {
-                showingTuneConfirm = true
+                Task { await rig.startTuneCycle() }
             } label: {
                 Label(rig.isTuning ? "Tuning…" : "Tune",
                       systemImage: "aqi.medium")
@@ -117,19 +108,8 @@ struct OperateView: View {
             .buttonStyle(.bordered)
             .tint(rig.isTuning ? .orange : nil)
             .disabled(rig.isTuning || isTransmitting)
-            .confirmationDialog(
-                "Start antenna tune cycle?",
-                isPresented: $showingTuneConfirm,
-                titleVisibility: .visible
-            ) {
-                Button("Tune (Transmits a Carrier)", role: .destructive) {
-                    Task { await rig.startTuneCycle() }
-                }
-            } message: {
-                Text("The radio will transmit while the tuner matches. "
-                     + "Make sure an antenna or dummy load is connected. "
-                     + "Requires menu 16-15 Tuner Type to be set.")
-            }
+            .accessibilityHint("Transmits a carrier while the tuner "
+                               + "matches the antenna")
 
             Button {
                 Task {
@@ -211,32 +191,53 @@ struct PTTButton: View {
     private var isTransmitting: Bool { rig.state?.isTransmitting ?? false }
 
     var body: some View {
-        Text(isTransmitting ? "ON AIR" : "Hold to Talk")
-            .font(.headline)
-            .foregroundStyle(.white)
-            .frame(maxWidth: .infinity)
-            .frame(minHeight: minHeight)
-            .padding(.vertical, 4)
-            .background(
-                isTransmitting ? Color.red : Color.accentColor,
-                in: RoundedRectangle(cornerRadius: 14))
-            .padding(.horizontal)
-            .gesture(
-                DragGesture(minimumDistance: 0)
-                    .onChanged { _ in
-                        guard !pressed else { return }
-                        pressed = true
-                        Task { await rig.pressPTT() }
-                    }
-                    .onEnded { _ in
-                        pressed = false
-                        Task { await rig.releasePTT() }
-                    }
-            )
-            .sensoryFeedback(.impact(weight: .heavy),
-                             trigger: isTransmitting)
-            .accessibilityLabel(
-                isTransmitting ? "Transmitting" : "Push to talk")
-            .accessibilityHint("Double-tap and hold to transmit")
+        Button {
+            // Nothing on tap: this control is press-and-hold.
+        } label: {
+            Text(isTransmitting ? "ON AIR" : "Hold to Talk")
+                .font(.headline)
+                .foregroundStyle(.white)
+                .frame(maxWidth: .infinity)
+                .frame(minHeight: minHeight)
+                .padding(.vertical, 4)
+                .background(
+                    isTransmitting ? Color.red : Color.accentColor,
+                    in: RoundedRectangle(cornerRadius: 14))
+                .padding(.horizontal)
+        }
+        .buttonStyle(PressAndHoldStyle { down in
+            guard pressed != down else { return }
+            pressed = down
+            Task {
+                if down {
+                    await rig.pressPTT()
+                } else {
+                    await rig.releasePTT()
+                }
+            }
+        })
+        .sensoryFeedback(.impact(weight: .heavy),
+                         trigger: isTransmitting)
+        .accessibilityLabel(
+            isTransmitting ? "Transmitting" : "Push to talk")
+        .accessibilityHint("Double-tap and hold to transmit")
+    }
+}
+
+/// Reports a button's press state, for press-and-hold controls.
+///
+/// A `Button`'s action fires on touch-*up*, and a raw `DragGesture` loses
+/// to an enclosing scroll view's pan — between them, holding did nothing.
+/// `configuration.isPressed` is the press state SwiftUI maintains itself
+/// and stays true for exactly as long as the finger is down.
+struct PressAndHoldStyle: ButtonStyle {
+    let pressed: (Bool) -> Void
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .contentShape(Rectangle())
+            .onChange(of: configuration.isPressed) { _, isDown in
+                pressed(isDown)
+            }
     }
 }

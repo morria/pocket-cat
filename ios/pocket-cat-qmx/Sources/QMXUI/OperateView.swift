@@ -24,9 +24,15 @@ struct OperateView: View {
                     .disabled(beacon.isRunning)
                 MeterCluster()
                 controlsGrid
-                pttButton
             }
             .padding()
+        }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            pttButton
+                .padding(.horizontal)
+                .padding(.top, 8)
+                .padding(.bottom, 6)
+                .background(.bar)
         }
         .navigationTitle("QMX")
         #if os(iOS)
@@ -244,46 +250,45 @@ struct OperateView: View {
 
     // MARK: - PTT
 
-    /// Hold to transmit. A `Button` fires its action on touch-*up*, so the
-    /// old one keyed only on release and holding it did nothing at all.
-    /// A minimum-distance-zero drag keys on touch-down and unkeys when the
-    /// finger leaves, which is what a PTT is.
+    /// Hold to transmit.
+    ///
+    /// Driven by a ButtonStyle's `isPressed` rather than a `DragGesture`.
+    /// A `Button`'s action fires on touch-*up*, so the first version keyed
+    /// only on release; a raw drag then lost to the scroll view's pan, so
+    /// holding still did nothing. `isPressed` flips on touch-down and back
+    /// on release, and the button is now outside the scroll view as well.
     private var pttButton: some View {
         let keyed = rig.state?.isTransmitting ?? false
-        return Label(keyed ? "ON AIR" : "Hold to Transmit",
-                     systemImage: keyed
-                        ? "antenna.radiowaves.left.and.right.circle.fill"
-                        : "antenna.radiowaves.left.and.right.circle")
-            .font(.headline)
-            .foregroundStyle(.white)
-            .frame(maxWidth: .infinity)
-            .frame(minHeight: pttHeight)
-            .background(keyed ? Color.red : Color.accentColor,
-                        in: RoundedRectangle(cornerRadius: 14,
-                                             style: .continuous))
-            .contentShape(RoundedRectangle(cornerRadius: 14,
-                                           style: .continuous))
-            .gesture(
-                DragGesture(minimumDistance: 0)
-                    .onChanged { _ in
-                        guard !transmitting, canTransmit else { return }
-                        transmitting = true
-                        Task { await rig.pressPTT() }
-                    }
-                    .onEnded { _ in
-                        guard transmitting else { return }
-                        transmitting = false
-                        Task { await rig.releasePTT() }
-                    }
-            )
-            .opacity(canTransmit ? 1 : 0.5)
-            .allowsHitTesting(canTransmit)
-            .sensoryFeedback(.impact(weight: .heavy), trigger: keyed)
-            .accessibilityLabel(keyed ? "Transmitting" : "Push to talk")
-            .accessibilityHint(beacon.isRunning
-                ? "Unavailable while the WSPR beacon is running."
-                : "Double-tap and hold to transmit. The bridge failsafe "
-                  + "unkeys automatically if the link drops.")
+        return Button {
+            // Nothing on tap: this control is press-and-hold.
+        } label: {
+            Label(keyed ? "ON AIR" : "Hold to Transmit",
+                  systemImage: keyed
+                    ? "antenna.radiowaves.left.and.right.circle.fill"
+                    : "antenna.radiowaves.left.and.right.circle")
+                .font(.headline)
+                .foregroundStyle(.white)
+                .frame(maxWidth: .infinity)
+                .frame(minHeight: pttHeight)
+                .background(keyed ? Color.red : Color.accentColor,
+                            in: RoundedRectangle(cornerRadius: 14,
+                                                 style: .continuous))
+        }
+        .buttonStyle(PressAndHoldStyle { down in
+            guard canTransmit else { return }
+            transmitting = down
+            Task {
+                if down { await rig.pressPTT() } else { await rig.releasePTT() }
+            }
+        })
+        .opacity(canTransmit ? 1 : 0.5)
+        .disabled(!canTransmit)
+        .sensoryFeedback(.impact(weight: .heavy), trigger: keyed)
+        .accessibilityLabel(keyed ? "Transmitting" : "Push to talk")
+        .accessibilityHint(beacon.isRunning
+            ? "Unavailable while the WSPR beacon is running."
+            : "Double-tap and hold to transmit. The bridge failsafe "
+              + "unkeys automatically if the link drops.")
     }
 
     /// The beacon owns the transmitter while it runs; a second key-down
@@ -316,5 +321,23 @@ private struct ModeChip: View {
         .frame(minHeight: 44)
         .disabled(!enabled)
         .accessibilityAddTraits(selected ? [.isSelected] : [])
+    }
+}
+
+/// Reports the press state of a button, for press-and-hold controls.
+///
+/// `Button` actions fire on touch-up and raw drags lose to scroll views;
+/// `configuration.isPressed` is the press state SwiftUI maintains itself,
+/// and it is true for exactly as long as the finger is down.
+private struct PressAndHoldStyle: ButtonStyle {
+    let pressed: (Bool) -> Void
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .contentShape(RoundedRectangle(cornerRadius: 14,
+                                           style: .continuous))
+            .onChange(of: configuration.isPressed) { _, isDown in
+                pressed(isDown)
+            }
     }
 }

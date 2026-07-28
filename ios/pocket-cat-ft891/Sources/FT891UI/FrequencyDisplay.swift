@@ -120,7 +120,10 @@ private struct TunableDigit: View {
     }
 }
 
-/// Direct frequency entry ("14.074" → 14.074 MHz).
+/// Direct frequency entry in kHz ("14074" → 14.074 MHz). kHz keeps the
+/// field integer-friendly for HF — no decimal point needed for the
+/// common case — and the unit is shown next to the field so there is no
+/// ambiguity about scale.
 private struct FrequencyEntrySheet: View {
     @Environment(RigController.self) private var rig
     @Environment(\.dismiss) private var dismiss
@@ -131,15 +134,26 @@ private struct FrequencyEntrySheet: View {
         VStack(spacing: 16) {
             Text("Enter Frequency")
                 .font(.headline)
-            TextField("14.074", text: $text)
-                .font(.system(size: 34, design: .rounded).monospacedDigit())
-                .multilineTextAlignment(.center)
-                .focused($focused)
-                #if os(iOS)
-                .keyboardType(.decimalPad)
-                #endif
-                .onSubmit(commit)
-            Button("Tune", action: commit)
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                TextField("14074", text: $text)
+                    .font(.system(size: 34, design: .rounded)
+                        .monospacedDigit())
+                    .multilineTextAlignment(.trailing)
+                    .focused($focused)
+                    #if os(iOS)
+                    .keyboardType(.decimalPad)
+                    #endif
+                    .onSubmit(commit)
+                Text("kHz")
+                    .font(.title3.weight(.medium))
+                    .foregroundStyle(.secondary)
+            }
+            if let hz = parsedHz {
+                Text(Frequency(hz: hz).description)
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+            }
+            Button("Set Frequency", action: commit)
                 .buttonStyle(.borderedProminent)
                 .disabled(parsedHz == nil)
         }
@@ -148,9 +162,9 @@ private struct FrequencyEntrySheet: View {
     }
 
     private var parsedHz: UInt64? {
-        guard let mhz = Double(text.replacingOccurrences(of: ",", with: ".")),
-              mhz > 0.03, mhz <= 56 else { return nil }
-        return UInt64((mhz * 1_000_000).rounded())
+        guard let khz = Double(text.replacingOccurrences(of: ",", with: ".")),
+              khz >= 30, khz <= 56_000 else { return nil }
+        return UInt64((khz * 1_000).rounded())
     }
 
     private func commit() {

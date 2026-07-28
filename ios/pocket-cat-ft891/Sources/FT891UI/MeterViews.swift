@@ -39,50 +39,51 @@ struct SMeterView: View {
     }
 }
 
-/// Both meter sets in one fixed-height slot.
-///
-/// The RX and TX clusters are different heights, so swapping them directly
-/// reflowed everything below — including the PTT button, which moved out
-/// from under the operator's thumb at the exact moment they were holding
-/// it. The panel reserves the taller of the two and cross-fades inside it,
-/// so keying changes what the screen says and never where anything is.
+/// All four meters, always visible. S reads while receiving; PO/SWR/ALC
+/// read while transmitting — the inactive set greys out rather than
+/// disappearing, so the panel's height is constant and nothing below it
+/// ever reflows (the old swap moved the PTT button under the operator's
+/// thumb mid-transmission).
 struct MeterPanel: View {
     @Environment(RigController.self) private var rig
     let isTransmitting: Bool
     let passband: PassbandController
 
-    @ScaledMetric(relativeTo: .body) private var height: CGFloat = 74
-
     var body: some View {
-        ZStack {
-            if isTransmitting {
-                TXMeterCluster()
-                    .transition(.opacity)
-            } else {
-                HStack(alignment: .center, spacing: 10) {
-                    SMeterView(raw: rig.state?.sMeter)
-                    // One-tap carrier fix beside the meter
-                    // (docs/passband.md §4.4).
-                    AutoNotchButton(passband: passband)
-                }
-                .transition(.opacity)
+        VStack(spacing: 6) {
+            HStack(spacing: 8) {
+                LabeledMeter(label: "S", raw: rig.state?.sMeter,
+                             tint: .green, active: !isTransmitting,
+                             valueText: sLabel)
+                // One-tap carrier fix beside the S-meter
+                // (docs/passband.md §4.4).
+                AutoNotchButton(passband: passband)
             }
+            LabeledMeter(label: "PO", raw: rig.poMeter, tint: .blue,
+                         active: isTransmitting)
+            LabeledMeter(label: "SWR", raw: rig.swrMeter,
+                         tint: swrTint(rig.swrMeter),
+                         active: isTransmitting, valueText: swrLabel)
+            LabeledMeter(label: "ALC", raw: rig.alcMeter, tint: .orange,
+                         active: isTransmitting)
         }
-        .frame(height: height, alignment: .top)
         .animation(.easeInOut(duration: 0.18), value: isTransmitting)
     }
-}
 
-struct TXMeterCluster: View {
-    @Environment(RigController.self) private var rig
-
-    var body: some View {
-        VStack(spacing: 8) {
-            LabeledMeter(label: "PO", raw: rig.poMeter, tint: .blue)
-            LabeledMeter(label: "SWR", raw: rig.swrMeter,
-                         tint: swrTint(rig.swrMeter))
-            LabeledMeter(label: "ALC", raw: rig.alcMeter, tint: .orange)
+    private var sLabel: String {
+        guard !isTransmitting, let raw = rig.state?.sMeter, raw > 0 else {
+            return "—"
         }
+        if raw <= 120 { return "S\(max(1, raw * 9 / 120))" }
+        return "S9+\((raw - 120) * 60 / 135)"
+    }
+
+    private var swrLabel: String {
+        guard isTransmitting, let raw = rig.swrMeter, raw > 0 else {
+            return "—"
+        }
+        // Raw ~ SWR; the community mapping puts full-scale near 5:1.
+        return String(format: "%.1f", 1 + Double(raw) / 255 * 4)
     }
 
     private func swrTint(_ raw: Int?) -> Color {
@@ -95,6 +96,10 @@ struct LabeledMeter: View {
     let label: String
     let raw: Int?
     let tint: Color
+    /// When false the meter greys out: correct for the current RX/TX state
+    /// but not currently reading.
+    var active: Bool = true
+    var valueText: String?
 
     var body: some View {
         HStack(spacing: 8) {
@@ -102,11 +107,20 @@ struct LabeledMeter: View {
                 .font(.caption2.weight(.semibold))
                 .frame(width: 34, alignment: .leading)
                 .foregroundStyle(.secondary)
-            MeterBar(fraction: Double(min(raw ?? 0, 255)) / 255, tint: tint)
+            MeterBar(fraction: active ? Double(min(raw ?? 0, 255)) / 255 : 0,
+                     tint: active ? tint : .gray)
+            if let valueText {
+                Text(valueText)
+                    .font(.caption2.monospacedDigit())
+                    .foregroundStyle(active ? .secondary : .tertiary)
+                    .frame(width: 42, alignment: .trailing)
+            }
         }
+        .opacity(active ? 1 : 0.5)
         .accessibilityElement()
         .accessibilityLabel(label)
-        .accessibilityValue(raw.map(String.init) ?? "no reading")
+        .accessibilityValue(active ? (valueText ?? raw.map(String.init)
+                                      ?? "no reading") : "inactive")
     }
 }
 
