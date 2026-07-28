@@ -7,7 +7,9 @@ import SwiftUI
 
 struct OperateView: View {
     @Environment(RigController.self) private var rig
+    @Environment(WSPRBeacon.self) private var beacon
     @State private var transmitting = false
+    @ScaledMetric(relativeTo: .headline) private var pttHeight: CGFloat = 54
     @State private var showingMemories = false
     @State private var showingSettings = false
 
@@ -15,8 +17,11 @@ struct OperateView: View {
         ScrollView {
             VStack(spacing: 16) {
                 FrequencyDisplay()
+                    .disabled(beacon.isRunning)
                 modeStrip
+                    .disabled(beacon.isRunning)
                 BandBar()
+                    .disabled(beacon.isRunning)
                 MeterCluster()
                 controlsGrid
                 pttButton
@@ -44,14 +49,6 @@ struct OperateView: View {
         }
         .sheet(isPresented: $showingMemories) { MemoriesView() }
         .sheet(isPresented: $showingSettings) { AppSettingsView() }
-        .overlay {
-            if rig.state?.isTransmitting ?? false {
-                RoundedRectangle(cornerRadius: 0)
-                    .strokeBorder(Color.red.opacity(0.8), lineWidth: 4)
-                    .ignoresSafeArea()
-                    .allowsHitTesting(false)
-            }
-        }
         .task { await rig.refreshSecondaryState() }
     }
 
@@ -182,7 +179,8 @@ struct OperateView: View {
                     set: { on in Task { await rig.setRIT(enabled: on) } }
                 ))
                 .toggleStyle(.button)
-                .disabled(rig.session == nil)
+                .fixedSize()          // "RIT" was wrapping to "RI / T"
+                .disabled(rig.session == nil || beacon.isRunning)
 
                 Spacer()
 
@@ -246,32 +244,52 @@ struct OperateView: View {
 
     // MARK: - PTT
 
+    /// Hold to transmit. A `Button` fires its action on touch-*up*, so the
+    /// old one keyed only on release and holding it did nothing at all.
+    /// A minimum-distance-zero drag keys on touch-down and unkeys when the
+    /// finger leaves, which is what a PTT is.
     private var pttButton: some View {
-        Button {
-            transmitting.toggle()
-            Task {
-                if transmitting {
-                    await rig.pressPTT()
-                } else {
-                    await rig.releasePTT()
-                }
-            }
-        } label: {
-            Label(transmitting ? "Receive" : "Transmit",
-                  systemImage: transmitting
-                    ? "antenna.radiowaves.left.and.right.circle.fill"
-                    : "antenna.radiowaves.left.and.right.circle")
+        let keyed = rig.state?.isTransmitting ?? false
+        return Label(keyed ? "ON AIR" : "Hold to Transmit",
+                     systemImage: keyed
+                        ? "antenna.radiowaves.left.and.right.circle.fill"
+                        : "antenna.radiowaves.left.and.right.circle")
+            .font(.headline)
+            .foregroundStyle(.white)
             .frame(maxWidth: .infinity)
-            .padding(.vertical, 10)
-        }
-        .buttonStyle(.borderedProminent)
-        .tint(transmitting ? .red : .accentColor)
-        .onChange(of: rig.state?.isTransmitting ?? false) { _, isTX in
-            // Watchdog/failsafe can unkey behind our back — follow it.
-            transmitting = isTX
-        }
-        .accessibilityHint("Keys the transmitter. The bridge failsafe "
-                           + "unkeys automatically if the link drops.")
+            .frame(minHeight: pttHeight)
+            .background(keyed ? Color.red : Color.accentColor,
+                        in: RoundedRectangle(cornerRadius: 14,
+                                             style: .continuous))
+            .contentShape(RoundedRectangle(cornerRadius: 14,
+                                           style: .continuous))
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { _ in
+                        guard !transmitting, canTransmit else { return }
+                        transmitting = true
+                        Task { await rig.pressPTT() }
+                    }
+                    .onEnded { _ in
+                        guard transmitting else { return }
+                        transmitting = false
+                        Task { await rig.releasePTT() }
+                    }
+            )
+            .opacity(canTransmit ? 1 : 0.5)
+            .allowsHitTesting(canTransmit)
+            .sensoryFeedback(.impact(weight: .heavy), trigger: keyed)
+            .accessibilityLabel(keyed ? "Transmitting" : "Push to talk")
+            .accessibilityHint(beacon.isRunning
+                ? "Unavailable while the WSPR beacon is running."
+                : "Double-tap and hold to transmit. The bridge failsafe "
+                  + "unkeys automatically if the link drops.")
+    }
+
+    /// The beacon owns the transmitter while it runs; a second key-down
+    /// mid-frame would corrupt the transmission and confuse the failsafe.
+    private var canTransmit: Bool {
+        rig.session != nil && !beacon.isRunning
     }
 }
 

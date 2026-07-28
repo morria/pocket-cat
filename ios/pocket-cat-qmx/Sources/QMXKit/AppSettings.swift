@@ -114,7 +114,9 @@ public final class AppSettings {
             ?? defaults.string(forKey: Key.legacyGrid) ?? ""
         operatorName = defaults.string(forKey: Key.operatorName) ?? ""
         qth = defaults.string(forKey: Key.qth) ?? ""
-        wsprPowerDBm = defaults.object(forKey: Key.power) as? Int ?? 23
+        // 37 dBm = 5 W, a QMX at 12 V. Better to start at the
+        // radio's nominal output than at an arbitrary number.
+        wsprPowerDBm = defaults.object(forKey: Key.power) as? Int ?? 37
         wsprBandName = defaults.string(forKey: Key.band) ?? "20 m"
         wsprSlotInterval = defaults.object(
             forKey: Key.slotInterval) as? Int ?? 3

@@ -7,6 +7,9 @@ import SwiftUI
 public struct RootView: View {
     @State private var rig = RigController()
     @State private var settings = AppSettings.shared
+    /// Owned here, not by the WSPR tab: a beacon must keep running — and
+    /// keep being visible — when the operator looks at another screen.
+    @State private var beacon = WSPRBeacon()
 
     public init() {}
 
@@ -33,8 +36,14 @@ public struct RootView: View {
                 }
         }
         .environment(rig)
+        .environment(beacon)
         .keepScreenAwake(settings.keepScreenAwake)
+        .safeAreaInset(edge: .top, spacing: 0) { OnAirBar(rig: rig, beacon: beacon) }
         .overlay(alignment: .top) { NoticeStack(rig: rig) }
+        .onChange(of: rig.session == nil) { _, gone in
+            // Losing the radio must not leave a beacon believing it's live.
+            if gone { Task { await beacon.stop() } }
+        }
         .task {
             #if canImport(CoreBluetooth)
             if rig.lastBridgeID != nil {
@@ -42,6 +51,55 @@ public struct RootView: View {
             }
             #endif
         }
+    }
+}
+
+/// One app-wide transmit indicator.
+///
+/// Replaces the full-screen red border, which the device's rounded corners
+/// clipped into four disconnected lines. A bar is legible, says *why* the
+/// radio is keyed, and — unlike a border — can carry the stop control.
+struct OnAirBar: View {
+    let rig: RigController
+    let beacon: WSPRBeacon
+
+    private var isKeyed: Bool { rig.state?.isTransmitting ?? false }
+
+    var body: some View {
+        if isKeyed || beacon.isRunning {
+            HStack(spacing: 8) {
+                Image(systemName: "dot.radiowaves.left.and.right")
+                    .symbolEffect(.variableColor.iterative, isActive: true)
+                Text(label)
+                    .font(.footnote.weight(.semibold))
+                Spacer(minLength: 0)
+                if beacon.isRunning {
+                    Button("Stop") { Task { await beacon.stop() } }
+                        .font(.footnote.weight(.semibold))
+                        .buttonStyle(.borderedProminent)
+                        .tint(.white)
+                        .foregroundStyle(.red)
+                        .controlSize(.mini)
+                }
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 7)
+            .frame(maxWidth: .infinity)
+            .background(.red)
+            .foregroundStyle(.white)
+            .accessibilityElement(children: .combine)
+            .accessibilityAddTraits(.updatesFrequently)
+        }
+    }
+
+    private var label: String {
+        if beacon.isRunning {
+            if case .transmitting(let symbol) = beacon.phase {
+                return "ON AIR · WSPR \(symbol + 1)/162"
+            }
+            return "WSPR beacon armed — waiting for the next slot"
+        }
+        return "ON AIR"
     }
 }
 

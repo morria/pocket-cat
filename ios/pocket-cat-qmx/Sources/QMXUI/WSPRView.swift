@@ -8,7 +8,7 @@ import SwiftUI
 struct WSPRView: View {
     @Environment(RigController.self) private var rig
     @Bindable private var settings = AppSettings.shared
-    @State private var beacon = WSPRBeacon()
+    @Environment(WSPRBeacon.self) private var beacon
     @State private var now = Date()
     @State private var showingSettings = false
 
@@ -80,6 +80,17 @@ struct WSPRView: View {
 
                 Section {
                     if beacon.isRunning {
+                        if let watts = beacon.measuredWatts,
+                           let dbm = beacon.measuredDBm {
+                            LabeledContent("Measured output",
+                                           value: String(format: "%.1f W · %d dBm",
+                                                         watts, dbm))
+                            if dbm != settings.wsprPowerDBm {
+                                Button("Report \(dbm) dBm instead") {
+                                    settings.wsprPowerDBm = dbm
+                                }
+                            }
+                        }
                         Button("Stop Beacon", role: .destructive) {
                             Task { await beacon.stop() }
                         }
@@ -195,5 +206,7 @@ struct WSPRView: View {
 }
 
 #Preview {
-    NavigationStack { WSPRView() }.environment(RigController())
+    NavigationStack { WSPRView() }
+        .environment(RigController())
+        .environment(WSPRBeacon())
 }

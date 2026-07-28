@@ -51,6 +51,17 @@ public final class WSPRBeacon {
     public private(set) var phase: Phase = .idle
     public private(set) var lastTransmission: Date?
     public private(set) var transmissionCount = 0
+    /// Output power sampled from the radio mid-frame (`PC`, tenths of a
+    /// watt). The QMX has no readable power *setting* — only what it is
+    /// actually making, and only while keyed — so this is the one honest
+    /// way to learn it.
+    public private(set) var measuredWatts: Double?
+
+    /// The dBm the measurement corresponds to, for the WSPR message.
+    public var measuredDBm: Int? {
+        guard let watts = measuredWatts, watts > 0 else { return nil }
+        return Int((30 + 10 * log10(watts)).rounded())
+    }
     public var isRunning: Bool { runTask != nil }
 
     public var session: TransceiverSession?
@@ -145,6 +156,10 @@ public final class WSPRBeacon {
                 let tone = WSPREncoder.toneHz(forSymbol: symbol,
                                               baseHz: baseToneHz)
                 try await session.setDigiTone(hz: tone)
+                // One sample, well into the frame, once the PA has settled.
+                if index == 20 {
+                    measuredWatts = try? await session.readPower()
+                }
                 let deadline = start.addingTimeInterval(Double(index + 1)
                                                         * period)
                 let remaining = deadline.timeIntervalSinceNow
