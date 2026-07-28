@@ -8,6 +8,8 @@ import SwiftUI
 struct OperateView: View {
     @Environment(RigController.self) private var rig
     @State private var transmitting = false
+    @State private var showingWSPR = false
+    @State private var showingSettings = false
 
     var body: some View {
         ScrollView {
@@ -26,7 +28,21 @@ struct OperateView: View {
         #endif
         .toolbar {
             ToolbarItem(placement: .principal) { ConnectionStatusButton() }
+            ToolbarItem(placement: .primaryAction) {
+                Menu {
+                    Button("WSPR Beacon…", systemImage: "dot.radiowaves.up.forward") {
+                        showingWSPR = true
+                    }
+                    Button("Settings…", systemImage: "gear") {
+                        showingSettings = true
+                    }
+                } label: {
+                    Label("More", systemImage: "ellipsis.circle")
+                }
+            }
         }
+        .sheet(isPresented: $showingWSPR) { WSPRView() }
+        .sheet(isPresented: $showingSettings) { AppSettingsView() }
         .task { await rig.refreshSecondaryState() }
     }
 

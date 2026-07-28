@@ -8,6 +8,7 @@ import SwiftUI
 struct OperateView: View {
     @Environment(RigController.self) private var rig
     @State private var showingTuneConfirm = false
+    @State private var showingSettings = false
     @State private var powerEditing: Double?
 
     private var isTransmitting: Bool { rig.state?.isTransmitting ?? false }
@@ -41,7 +42,13 @@ struct OperateView: View {
         #endif
         .toolbar {
             ToolbarItem(placement: .principal) { ConnectionStatusButton() }
+            ToolbarItem(placement: .primaryAction) {
+                Button("App Settings", systemImage: "gear") {
+                    showingSettings = true
+                }
+            }
         }
+        .sheet(isPresented: $showingSettings) { AppSettingsView() }
         .overlay {
             if isTransmitting {
                 RoundedRectangle(cornerRadius: 0)

@@ -6,6 +6,7 @@ import SwiftUI
 
 public struct RootView: View {
     @State private var rig = RigController()
+    @State private var settings = AppSettings.shared
 
     public init() {}
 
@@ -28,6 +29,7 @@ public struct RootView: View {
                 }
         }
         .environment(rig)
+        .keepScreenAwake(settings.keepScreenAwake)
         .overlay(alignment: .top) { NoticeStack(rig: rig) }
         .task {
             #if canImport(CoreBluetooth)

@@ -218,6 +218,12 @@ public struct QMXSimRig: Sendable {
     /// band push into this; `KY` also feeds it, standing in for the radio
     /// decoding its own sidetone.
     public var decodeBuffer = ""
+    /// Seconds since midnight, as set by `TM`. Starts deliberately wrong so
+    /// clock-sync tests can see it move.
+    public var clockSeconds = 0
+    /// Every digi tone the radio was told to key, in order (`TA`). `nil`
+    /// marks `TA0;` — the unkey.
+    public var toneLog: [Double?] = []
 
     /// A menu-tree node; grids carry one value per column.
     public struct SimNode: Sendable {
@@ -376,6 +382,13 @@ public struct QMXSimRig: Sendable {
         case "SA;": return "SA\(agcDB);"
         case "SW;": return transmitting ? "SW\(swrHundredths);" : "SW;"
         case "VN;": return "VN1_02_006QMX;"
+        case "TM;":
+            return String(format: "TM%02d%02d%02d;", clockSeconds / 3_600,
+                          (clockSeconds / 60) % 60, clockSeconds % 60)
+        case "TA0;":
+            transmitting = false
+            toneLog.append(nil)
+            return nil
         case "TB;":
             // TB<keyer state><2-digit count><text>; — the radio hands over
             // at most its 40-char buffer and drops what it gives us.
@@ -438,6 +451,18 @@ public struct QMXSimRig: Sendable {
             // back round through TB. Instant here; on the air it arrives at
             // the keyer's speed.
             decodeBuffer += String(body.dropFirst(3)).uppercased() + " "
+            return nil
+        }
+        if body.hasPrefix("TM"), body.count == 8,
+           let hours = Int(body.dropFirst(2).prefix(2)),
+           let minutes = Int(body.dropFirst(4).prefix(2)),
+           let seconds = Int(body.suffix(2)) {
+            clockSeconds = hours * 3_600 + minutes * 60 + seconds
+            return nil
+        }
+        if body.hasPrefix("TA"), let hz = Double(body.dropFirst(2)), hz > 0 {
+            transmitting = true
+            toneLog.append(hz)
             return nil
         }
         if body.hasPrefix("PC"), body.count > 2 { return "?;" } // GET-only

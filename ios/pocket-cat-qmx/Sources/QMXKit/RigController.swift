@@ -26,6 +26,11 @@ public final class RigController {
     public private(set) var vfoB: Frequency?
     public private(set) var keyerSpeed: Int?
     public private(set) var firmwareVersion: String?
+    /// When the radio's clock was last set from the phone.
+    public private(set) var lastClockSync: Date?
+    /// How far the radio's clock was out at the last sync, in seconds
+    /// (positive = the radio was ahead). Nil until a sync has happened.
+    public private(set) var clockDriftSeconds: Int?
     /// TX-time meters, polled only while transmitting.
     public private(set) var swr: Double?
     public private(set) var agcDB: Int?
@@ -165,8 +170,52 @@ public final class RigController {
         do {
             try await session.start()
             await refreshSecondaryState()
+            if AppSettings.shared.syncClockOnConnect {
+                await syncClock()
+            }
         } catch {
             notify(friendlyMessage(for: error))
+        }
+    }
+
+    /// Test seam: attach a live session without running the connect
+    /// sequence, so a test can exercise one behaviour in isolation.
+    func attachForTesting(_ session: TransceiverSession) {
+        self.session = session
+        self.state = session.state
+    }
+
+    // MARK: - Clock
+
+    /// Pushes the phone's UTC time to the radio, recording how far out it
+    /// was first. `TM` carries no date, so only time-of-day is set — and
+    /// UTC, not local, because that is what logs and digital modes assume.
+    public func syncClock() async {
+        guard let session else { return }
+        let calendar = Calendar.utcCalendar
+        let now = Date()
+        let parts = calendar.dateComponents([.hour, .minute, .second],
+                                            from: now)
+        let target = (parts.hour ?? 0) * 3_600 + (parts.minute ?? 0) * 60
+            + (parts.second ?? 0)
+
+        if let before = try? await session.readClock() {
+            // Signed shortest distance around the 24-hour dial.
+            var drift = before - target
+            if drift > 43_200 { drift -= 86_400 }
+            if drift < -43_200 { drift += 86_400 }
+            clockDriftSeconds = drift
+        }
+        do {
+            // Re-read the wall clock: the round trip above took time.
+            let fresh = calendar.dateComponents([.hour, .minute, .second],
+                                                from: Date())
+            try await session.setClock(
+                secondsSinceMidnight: (fresh.hour ?? 0) * 3_600
+                    + (fresh.minute ?? 0) * 60 + (fresh.second ?? 0))
+            lastClockSync = Date()
+        } catch {
+            notify("Couldn't set the radio's clock.")
         }
     }
 

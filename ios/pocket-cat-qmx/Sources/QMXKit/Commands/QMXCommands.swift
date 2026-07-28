@@ -186,6 +186,52 @@ extension TransceiverSession {
                                  expectsReply: false)
     }
 
+    // MARK: - Real-time clock (TM — hhmmss)
+
+    /// The radio's clock as seconds since midnight.
+    public func readClock() async throws -> Int {
+        let body = try await qmxRead("TM;", prefix: "TM")
+        guard body.count == 6,
+              let hours = Int(body.prefix(2)),
+              let minutes = Int(body.dropFirst(2).prefix(2)),
+              let seconds = Int(body.suffix(2)),
+              hours < 24, minutes < 60, seconds < 60
+        else { throw CATBridgeError.malformedResponse("TM") }
+        return hours * 3_600 + minutes * 60 + seconds
+    }
+
+    /// Sets the radio's clock. `TM` carries no date, so only the
+    /// time-of-day travels.
+    public func setClock(secondsSinceMidnight seconds: Int) async throws {
+        let wrapped = ((seconds % 86_400) + 86_400) % 86_400
+        let wire = String(format: "TM%02d%02d%02d;", wrapped / 3_600,
+                          (wrapped / 60) % 60, wrapped % 60)
+        _ = try await rawCommand(wire, expectsReply: false)
+    }
+
+    // MARK: - Digi-mode tone (TA — the WSPR beacon's transmitter)
+
+    /// Keys the transmitter at `hz` in digi mode.
+    ///
+    /// The CAT manual documents the argument as "fractional Hz" without
+    /// pinning the field format; this sends plain decimal Hz with two
+    /// places, which is the reading that matches the surrounding commands.
+    /// **Verify against the radio before trusting a beacon to it** — if the
+    /// tone lands in the wrong place, this formatter is the one line to
+    /// change. `TA0;` unkeys regardless of the format.
+    public func setDigiTone(hz: Double) async throws {
+        guard hz > 0, hz < 20_000 else {
+            throw CATBridgeError.invalidArgument("tone out of range")
+        }
+        _ = try await rawCommand(String(format: "TA%.2f;", hz),
+                                 expectsReply: false)
+    }
+
+    /// Ends the tone and unkeys.
+    public func endDigiTone() async throws {
+        _ = try await rawCommand("TA0;", expectsReply: false)
+    }
+
     // MARK: - Odds and ends
 
     public func readFirmwareVersion() async throws -> String {
