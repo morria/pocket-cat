@@ -18,7 +18,7 @@
       <stop offset="1" stop-color="#151f29"/>
     </linearGradient>
     <filter id="txtshadow" x="-25%" y="-25%" width="150%" height="150%">
-      <feDropShadow dx="0" dy="7" stdDeviation="16" flood-color="#000000" flood-opacity="0.75"/>
+      <feDropShadow dx="0" dy="7" stdDeviation="12" flood-color="#000000" flood-opacity="0.6"/>
     </filter>
   </defs>
 
@@ -52,7 +52,16 @@
     <circle cx="593.4" cy="353.7" r="60" fill="none" stroke="#f0e6d2" stroke-width="22"/>
   </g>
 
-  <text x="512" y="890" filter="url(#txtshadow)"
-        font-family="Helvetica Neue" font-weight="bold" font-size="152"
-        letter-spacing="4" text-anchor="middle" fill="#ffffff">QMX</text>
+  <!-- Label: a dark stroke pass under a white fill pass. Two passes
+       because librsvg ignores paint-order, and a single stroked text
+       would paint the outline over the glyphs instead of behind them. -->
+  <g filter="url(#txtshadow)">
+    <text x="512" y="890" font-family="Helvetica Neue" font-weight="bold"
+          font-size="152" letter-spacing="4" text-anchor="middle"
+          fill="none" stroke="#0d141b" stroke-width="30"
+          stroke-linejoin="round">QMX</text>
+  </g>
+  <text x="512" y="890" font-family="Helvetica Neue" font-weight="bold"
+        font-size="152" letter-spacing="4" text-anchor="middle"
+        fill="#ffffff">QMX</text>
 </svg>

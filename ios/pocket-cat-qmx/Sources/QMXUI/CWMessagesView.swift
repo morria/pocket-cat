@@ -29,6 +29,14 @@ struct CWMessagesView: View {
         .toolbar {
             ToolbarItem(placement: .principal) { ConnectionStatusButton() }
             ToolbarItem(placement: .primaryAction) { menu }
+            // The keyboard covers the tab bar, so without a way out of the
+            // field there is no way off this screen.
+            #if os(iOS)
+            ToolbarItemGroup(placement: .keyboard) {
+                Spacer()
+                Button("Done") { composeFocused = false }
+            }
+            #endif
         }
         .task {
             messenger.session = rig.session
@@ -74,6 +82,12 @@ struct CWMessagesView: View {
                 .padding(.vertical, 8)
             }
             .defaultScrollAnchor(.bottom)
+            .scrollDismissesKeyboard(.interactively)
+            // Tapping the transcript also dismisses — the same way Messages
+            // behaves, and a second escape route if the Done button is
+            // missed.
+            .contentShape(Rectangle())
+            .onTapGesture { composeFocused = false }
             .onChange(of: messenger.messages.last?.id) { _, id in
                 guard let id else { return }
                 withAnimation(.snappy) { proxy.scrollTo(id, anchor: .bottom) }
