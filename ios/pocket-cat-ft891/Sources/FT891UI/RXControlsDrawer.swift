@@ -1,5 +1,7 @@
-// Receive-chain quick controls, all via the library's typed RigSetting
-// API. Collapsed by default; values load when the drawer opens.
+// Receive-chain controls, all via the library's typed RigSetting API.
+// A regular always-visible section (matching the Passband section's
+// header treatment) — it was the screen's only collapsed element, which
+// read as arbitrary rather than intentional. Values load on appear.
 
 import CATBridgeKit
 import FT891Kit
@@ -7,41 +9,40 @@ import SwiftUI
 
 struct RXControlsDrawer: View {
     @Environment(RigController.self) private var rig
-    @State private var expanded = false
     @State private var values: [RigSetting: Double] = [:]
     @State private var loaded = false
 
     var body: some View {
-        DisclosureGroup(isExpanded: $expanded) {
-            VStack(spacing: 12) {
-                settingSlider("AF Gain", .afGain, range: 0...255)
-                settingSlider("RF Gain", .rfGain, range: 0...255)
-                settingSlider("Squelch", .squelch, range: 0...100)
-                HStack(spacing: 10) {
-                    settingToggle("NB", .noiseBlanker)
-                    settingToggle("NR", .noiseReduction)
-                    settingToggle("ATT", .attenuator)
-                    // FT-891 has IPO (0) / AMP (1) only.
-                    settingToggle("AMP", .preamp)
-                }
+        VStack(spacing: 12) {
+            HStack {
+                Label("Receiver", systemImage: "waveform")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                Spacer()
             }
-            .padding(.top, 8)
-            .task(id: expanded) {
-                guard expanded, !loaded else { return }
-                loaded = true
-                for setting in [RigSetting.afGain, .rfGain, .squelch,
-                                .noiseBlanker, .noiseReduction,
-                                .attenuator, .preamp] {
-                    if let value = await rig.readSetting(setting) {
-                        values[setting] = Double(value)
-                    }
-                }
+            settingSlider("AF Gain", .afGain, range: 0...255)
+            settingSlider("RF Gain", .rfGain, range: 0...255)
+            settingSlider("Squelch", .squelch, range: 0...100)
+            HStack(spacing: 10) {
+                settingToggle("NB", .noiseBlanker)
+                settingToggle("NR", .noiseReduction)
+                settingToggle("ATT", .attenuator)
+                // FT-891 has IPO (0) / AMP (1) only.
+                settingToggle("AMP", .preamp)
             }
-        } label: {
-            Label("Receiver", systemImage: "waveform")
-                .font(.callout.weight(.medium))
         }
         .padding(.horizontal)
+        .task(id: rig.session == nil) {
+            guard rig.session != nil, !loaded else { return }
+            loaded = true
+            for setting in [RigSetting.afGain, .rfGain, .squelch,
+                            .noiseBlanker, .noiseReduction,
+                            .attenuator, .preamp] {
+                if let value = await rig.readSetting(setting) {
+                    values[setting] = Double(value)
+                }
+            }
+        }
     }
 
     private func settingSlider(_ title: String, _ setting: RigSetting,

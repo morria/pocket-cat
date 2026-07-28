@@ -49,6 +49,7 @@ struct SMeterView: View {
 struct MeterPanel: View {
     @Environment(RigController.self) private var rig
     let isTransmitting: Bool
+    let passband: PassbandController
 
     @ScaledMetric(relativeTo: .body) private var height: CGFloat = 74
 
@@ -58,8 +59,13 @@ struct MeterPanel: View {
                 TXMeterCluster()
                     .transition(.opacity)
             } else {
-                SMeterView(raw: rig.state?.sMeter)
-                    .transition(.opacity)
+                HStack(alignment: .center, spacing: 10) {
+                    SMeterView(raw: rig.state?.sMeter)
+                    // One-tap carrier fix beside the meter
+                    // (docs/passband.md §4.4).
+                    AutoNotchButton(passband: passband)
+                }
+                .transition(.opacity)
             }
         }
         .frame(height: height, alignment: .top)

@@ -22,27 +22,26 @@ struct OperateView: View {
                 ModeStrip()
                 BandBar()
 
-                if isTransmitting || rig.isTuning {
-                    TXMeterCluster()
-                        .padding(.horizontal)
-                } else {
-                    HStack(alignment: .center, spacing: 10) {
-                        SMeterView(raw: rig.state?.sMeter)
-                        // One-tap carrier fix beside the meter
-                        // (docs/passband.md §4.4).
-                        AutoNotchButton(passband: passband)
-                    }
+                // Fixed-height slot: keying changes what this says,
+                // never where anything below it sits.
+                MeterPanel(isTransmitting: isTransmitting || rig.isTuning,
+                           passband: passband)
                     .padding(.horizontal)
-                }
 
                 powerRow
                 utilityRow
                 PassbandStrip(passband: passband)
                 RXControlsDrawer()
-                PTTButton()
-                    .padding(.top, 4)
             }
             .padding(.vertical)
+        }
+        // PTT is docked outside the scroll: the one safety-critical
+        // control never scrolls away and never moves under the thumb.
+        .safeAreaInset(edge: .bottom) {
+            PTTButton()
+                .padding(.top, 8)
+                .padding(.bottom, 4)
+                .background(.bar)
         }
         .navigationTitle("FT-891")
         #if os(iOS)
