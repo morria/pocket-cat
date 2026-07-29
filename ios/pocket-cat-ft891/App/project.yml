@@ -32,6 +32,13 @@ targets:
           - bluetooth-central
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
+        # iPad gets landscape too: a portrait-locked slab is the wrong
+        # shape for a rig control screen on a 11-inch display.
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
         NSUbiquitousContainers:
           iCloud.radio.ft891.FT891App:
             NSUbiquitousContainerIsDocumentScopePublic: true
@@ -55,5 +62,5 @@ targets:
         DEVELOPMENT_TEAM: 7Q2SS8772K
         CODE_SIGN_STYLE: Automatic
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
-        TARGETED_DEVICE_FAMILY: "1"
+        TARGETED_DEVICE_FAMILY: "1,2"   # iPhone and iPad
         INFOPLIST_KEY_UIUserInterfaceStyle: Automatic
