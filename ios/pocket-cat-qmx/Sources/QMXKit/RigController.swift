@@ -446,9 +446,9 @@ public final class RigController {
                                 fps: UInt8 = 15) async {
         guard let session, !panadapterActive else { return }
         do {
-            try await session.setIQMode(true)
-            guard try await session.readIQMode() else {
-                notify("Radio refused I/Q mode (Q9).")
+            guard try await enableIQMode(session) else {
+                notify("Radio refused I/Q mode (Q9) after "
+                       + "\(QMXSpectrum.iqModeAttempts) tries.")
                 return
             }
             try await session.setSpectrum(bins: bins, fps: fps)
@@ -486,13 +486,31 @@ public final class RigController {
     private func reassertPanadapterAfterAttach() async {
         guard panadapterActive, let session else { return }
         do {
-            try await session.setIQMode(true)
-            guard try await session.readIQMode() else { return }
+            guard try await enableIQMode(session) else {
+                panadapterActive = false
+                notify("Panadapter stopped: radio would not re-enter I/Q "
+                       + "mode.")
+                return
+            }
             try await session.setSpectrum(bins: 256, fps: 15)
         } catch {
             panadapterActive = false
             notify("Panadapter stopped: \(friendlyMessage(for: error))")
         }
+    }
+
+    /// Q9 sometimes needs a couple of tries to take (the reference client
+    /// retries up to 4 at connect). Set, read back, repeat until confirmed.
+    private func enableIQMode(_ session: TransceiverSession) async throws
+        -> Bool {
+        for attempt in 1...QMXSpectrum.iqModeAttempts {
+            try await session.setIQMode(true)
+            if try await session.readIQMode() { return true }
+            if attempt < QMXSpectrum.iqModeAttempts {
+                try? await Task.sleep(for: .milliseconds(150))
+            }
+        }
+        return false
     }
 
     // MARK: - TX meter polling (SWR + power are only live while keyed)

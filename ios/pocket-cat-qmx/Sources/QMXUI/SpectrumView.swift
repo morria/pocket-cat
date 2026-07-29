@@ -111,7 +111,8 @@ struct SpectrumView: View {
                 .frame(maxHeight: 200)
         } else if let frame = rig.latestSpectrum {
             VStack(spacing: 4) {
-                TraceView(frame: frame)
+                TraceView(frame: frame,
+                          vfoFraction: vfoFraction(frame))
                     .frame(height: 130)
                 axisLabels(frame: frame)
                 WaterfallView(store: waterfall)
@@ -128,19 +129,32 @@ struct SpectrumView: View {
         }
     }
 
+    /// Where the tuned VFO sits across the frame — a quarter in from the
+    /// left on the QMX, because its I/Q is at +12 kHz IF (QMXSpectrum).
+    private func vfoFraction(_ frame: SpectrumFrame) -> Double {
+        QMXSpectrum.vfoBinFraction(binCount: frame.bins.count,
+                                   sampleRateHz: frame.sampleRateHz)
+    }
+
+    /// Labels reflect the +12 kHz IF offset: the frame edges are the true
+    /// band edges, and the VFO tick is placed under its actual bin, not
+    /// dead centre.
     private func axisLabels(frame: SpectrumFrame) -> some View {
-        let half = Double(frame.sampleRateHz) / 2.0
-        let centre = Double(centreHz)
-        func label(_ hz: Double) -> String {
-            String(format: "%.3f", hz / 1_000_000.0)
+        let count = frame.bins.count
+        func edge(_ bin: Int) -> String {
+            let hz = QMXSpectrum.frequencyHz(
+                bin: bin, binCount: count,
+                sampleRateHz: frame.sampleRateHz, vfoHz: centreHz)
+            return String(format: "%.3f", hz / 1_000_000.0)
         }
-        return HStack {
-            Text(label(centre - half))
+        return HStack(spacing: 0) {
+            Text(edge(0))
             Spacer()
-            Text(label(centre) + " MHz")
-                .fontWeight(.medium)
+            (Text(String(format: "%.3f", Double(centreHz) / 1_000_000.0))
+                .fontWeight(.medium) + Text(" VFO"))
+                .frame(maxWidth: .infinity, alignment: .center)
             Spacer()
-            Text(label(centre + half))
+            Text(edge(count - 1))
         }
         .font(.caption2.monospacedDigit())
         .foregroundStyle(.secondary)
@@ -151,6 +165,11 @@ struct SpectrumView: View {
 /// 256 bins × 15 fps (plan §6).
 struct TraceView: View {
     let frame: SpectrumFrame
+    /// 0…1 position of the tuned VFO across the frame (QMX: 0.25, since its
+    /// DC bin is +12 kHz above the VFO). v1 draws the raw baseband and
+    /// marks the VFO in place; visually re-centring on the VFO is an M4
+    /// decision to make against real I/Q (docs/qmx-panadapter.md §6).
+    var vfoFraction: Double = 0.5
 
     var body: some View {
         Canvas { context, size in
@@ -168,12 +187,13 @@ struct TraceView: View {
                 }
             }
             context.stroke(path, with: .color(.green), lineWidth: 1.5)
-            // Centre line = the tuned frequency (bin N/2 is DC).
-            let cx = size.width / 2
+            // Red marker at the tuned VFO's actual bin (not frame centre —
+            // the QMX offsets DC by +12 kHz).
+            let cx = size.width * CGFloat(vfoFraction)
             context.stroke(
                 Path { $0.move(to: CGPoint(x: cx, y: 0))
                        $0.addLine(to: CGPoint(x: cx, y: size.height)) },
-                with: .color(.red.opacity(0.4)), lineWidth: 1)
+                with: .color(.red.opacity(0.6)), lineWidth: 1)
         }
         .background(.black.opacity(0.85),
                     in: RoundedRectangle(cornerRadius: 8))

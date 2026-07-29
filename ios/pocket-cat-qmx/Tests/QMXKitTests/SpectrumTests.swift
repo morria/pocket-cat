@@ -51,3 +51,25 @@ struct PanadapterSimTests {
         await session.disconnect()
     }
 }
+
+@Suite struct QMXSpectrumOffsetTests {
+    @Test func vfoSitsAtQuarterSpanForTheQMXOffset() {
+        // 48 kHz / 256 bins: +12 kHz IF = a quarter span, so the VFO is a
+        // quarter in from the left (bin 64 of 256).
+        let f = QMXSpectrum.vfoBinFraction(binCount: 256, sampleRateHz: 48000)
+        #expect(abs(f - 0.25) < 0.01)
+    }
+
+    @Test func frequencyMappingPutsDCAtCentrePlusOffset() {
+        // Frame centre (bin 128) is the VFO + 12 kHz DC bin.
+        let vfo: UInt64 = 14_060_000
+        let centre = QMXSpectrum.frequencyHz(
+            bin: 128, binCount: 256, sampleRateHz: 48000, vfoHz: vfo)
+        #expect(centre == Double(vfo) + 12_000)
+
+        // And the VFO frequency itself lands at bin 64.
+        let atVfo = QMXSpectrum.frequencyHz(
+            bin: 64, binCount: 256, sampleRateHz: 48000, vfoHz: vfo)
+        #expect(abs(atVfo - Double(vfo)) < 200) // one bin ≈ 187 Hz
+    }
+}

@@ -224,6 +224,18 @@ The DWC host controller supports isochronous pipes (`hcd_dwc.c:1717`).
 Espressif maintains a `usb_host_uac` component; version compatibility with the
 pinned IDF (v5.3) is unverified.
 
+**Confirmed gotcha (external):** UAC and CDC-ACM co-existing on one host
+needs the UAC component's **`create_background_task = true`** — without it the
+two functions fight over the host. Source: `SteffenLav/qmx-panadapter` (they
+also patched the UAC component and pin ESP-IDF 5.4.4; we're on 5.3.5, so
+budget time for a component bump or backport at M4). Their I/Q is **48 kHz
+stereo**, matching §2. They also run a **Gram-Schmidt orthogonaliser** to
+correct I/Q amplitude/quadrature imbalance — without it, ~30 dB mirror images
+appear on the waterfall. Our firmware DSP does DC removal (§3.3) but no
+imbalance correction; add it at M4 for image rejection, or accept mirrors in
+v1. Their client retries the `Q9` handshake up to 4× at connect — `QMXKit`
+now does the same (`QMXSpectrum.iqModeAttempts`).
+
 Interface selection already handles compositeness correctly and is unit-tested
 with a QMX-shaped fixture — audio on 0/1/2, CDC comm on 3, data on 4, asserting
 `cat_iface == 3` (`esp32s3/test/host/test_radio_detect.c:53-69`).
@@ -284,10 +296,18 @@ scrolling waterfall with history, use a Metal texture and shift rows rather
 than redrawing — the standard approach, and far cheaper.
 
 Frequency labelling is the app's job (§1.1): it holds the VFO frequency, so
-the axis is `vfo ± sample_rate/2`, adjusted for any offset the QMX applies in
-I/Q mode. **Confirm on hardware whether the I/Q stream is centred on the VFO
-or offset** — this is exactly the kind of radio-specific detail that belongs in
-`QMXKit`, not the firmware.
+the axis is `vfo ± sample_rate/2`, adjusted for the offset the QMX applies in
+I/Q mode. **RESOLVED (external): the QMX presents I/Q at +12 kHz IF** — the
+stream's DC bin (frame centre) is `vfo + 12 kHz`, so the tuned signal sits a
+quarter-span below centre. Source: the `SteffenLav/qmx-panadapter` project
+(M5Stack Tab5 / ESP32-P4), which shifts bin selection by `n_bins/4` for the
+same reason. Modelled in `QMXKit`'s `QMXSpectrum` (offset constant + bin↔Hz
+mapping, unit-tested); the axis labels and VFO marker already use it. Confirm
+the exact value against a real radio at M4. **Visually re-centring the trace
+on the VFO** (vs marking it in place, which v1 does) is a real DSP/display
+decision — the QMX baseband is asymmetric about the VFO (`vfo−12k…vfo+36k`),
+so centring means cropping or panning; make that call against real I/Q at M4,
+per the reference's `n_bins/4` crop.
 
 Three labelling edge cases that will otherwise ship as bugs:
 
