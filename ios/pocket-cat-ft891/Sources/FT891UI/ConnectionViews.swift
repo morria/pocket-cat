@@ -59,12 +59,31 @@ struct ConnectionSheet: View {
     @Environment(RigController.self) private var rig
     @Environment(\.dismiss) private var dismiss
 
+    /// Naming the phase turns "it just sits there" into something the
+    /// operator can act on.
+    private var phaseDescription: String {
+        switch rig.connectionPhase {
+        case .idle: "Not connected"
+        case .connecting: "Connecting…"
+        case .bridgeReady: "Bridge ready — probing the radio…"
+        case .identifyingRadio: "Identifying radio…"
+        case .ready: rig.isSimulated ? "Ready (simulated)" : "Ready"
+        case .reconnecting(let attempt): "Reconnecting (attempt \(attempt))…"
+        case .failed(let reason): "Failed — \(reason)"
+        }
+    }
+
     var body: some View {
         NavigationStack {
             List {
-                if case .ready = rig.connectionPhase {
+                // Shown for any live session, not just a ready one: a
+                // connection that stalls mid-handshake is exactly when
+                // Disconnect is needed, and gating it on .ready left no
+                // way out but forgetting the device in iOS Settings.
+                if rig.session != nil {
                     Section {
                         LabeledContent("Radio", value: "Yaesu FT-891")
+                        LabeledContent("State", value: phaseDescription)
                         if let baud = rig.state?.bridge.baud, baud > 0 {
                             LabeledContent("CAT rate",
                                            value: "\(baud) baud")
@@ -75,6 +94,9 @@ struct ConnectionSheet: View {
                                 dismiss()
                             }
                         }
+                    }  footer: {
+                        Text("Disconnecting also lets the bridge advertise "
+                             + "again — it stays silent while connected.")
                     }
                 }
 
