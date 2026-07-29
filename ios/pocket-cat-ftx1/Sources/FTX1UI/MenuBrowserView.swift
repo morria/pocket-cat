@@ -17,6 +17,8 @@ struct MenuBrowserView: View {
     @State private var reading = false
     @State private var status: String?
     @State private var bookmarks: [MenuBookmark] = MenuBookmark.load()
+    @State private var discovery = MenuDiscovery()
+    @State private var scanGroup = 1
 
     var body: some View {
         Form {
@@ -56,6 +58,55 @@ struct MenuBrowserView: View {
                 Text("Four-digit item number, as printed in the FTX-1 CAT "
                      + "manual. Values are the radio's raw digits — it "
                      + "rejects anything out of range rather than clamping.")
+            }
+
+            Section {
+                Picker("Group", selection: $scanGroup) {
+                    ForEach(MenuDiscovery.groups, id: \.self) { group in
+                        Text(String(format: "%02d", group)).tag(group)
+                    }
+                }
+                if discovery.isScanning {
+                    HStack {
+                        ProgressView(value: discovery.progress)
+                        Button("Stop") { discovery.cancel() }
+                    }
+                } else {
+                    Button("Scan Group \(String(format: "%02d", scanGroup))",
+                           systemImage: "magnifyingglass") {
+                        discovery.scan(group: scanGroup, rig: rig)
+                    }
+                    .disabled(rig.session == nil)
+                }
+            } header: {
+                Text("Discover")
+            } footer: {
+                Text("Asks the radio for every item in a group and keeps "
+                     + "the ones it answers. About 99 questions per group, "
+                     + "so it takes a few seconds — but the result is this "
+                     + "radio's real menu rather than another radio's.")
+            }
+
+            ForEach(discovery.groupsFound, id: \.self) { group in
+                Section("Group \(String(format: "%02d", group))") {
+                    ForEach(discovery.items(inGroup: group)) { item in
+                        Button {
+                            number = item.number
+                            value = item.value
+                            read()
+                        } label: {
+                            LabeledContent(item.displayNumber,
+                                           value: item.value)
+                        }
+                    }
+                }
+            }
+
+            Section {
+                NavigationLink("CAT Console") { CATConsoleView() }
+            } footer: {
+                Text("Send raw commands and read the replies — how an "
+                     + "unknown format gets pinned down.")
             }
 
             Section {

@@ -243,6 +243,17 @@ public final class RigController {
         } catch { notify(friendlyMessage(for: error)) }
     }
 
+    /// Send a raw CAT command and return the reply, for the console.
+    /// Deliberately unguarded except for PTT, which the session refuses
+    /// while the failsafe is unarmed.
+    public func rawCAT(_ wire: String) async throws -> String? {
+        guard let session else { throw CATBridgeError.notReady }
+        // A trailing read prefix is only expected for query-shaped
+        // commands; ask for a reply and tolerate none.
+        return try await session.rawCommand(wire, expectsReply: true,
+                                            isIdempotent: true)
+    }
+
     // MARK: - Menu (raw, by EX number)
 
     public func readMenuDigits(_ exNumber: String) async throws -> String {
@@ -373,6 +384,10 @@ public final class RigController {
             (try? await session.readClarifierEnabled()) ?? clarifierEnabled
         vfoB = try? await session.readVFOB()
         keyerSpeed = try? await session.read(.keyerSpeed)
+        // Ask for the radio's power: the reply updates the session model,
+        // so the slider starts where the radio is instead of on a default
+        // the operator has to nudge before it means anything.
+        _ = try? await session.readPower()
     }
 
     // MARK: - RX settings (typed RigSetting passthrough)

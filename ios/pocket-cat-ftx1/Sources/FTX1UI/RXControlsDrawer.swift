@@ -45,6 +45,28 @@ struct RXControlsDrawer: View {
         }
     }
 
+    /// IPO / AMP1 / AMP2. `PA0` takes 0...2 on this radio, and the FT-891's
+    /// two-state toggle could only ever reach the first two.
+    private var preampPicker: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text("Preamp")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Picker("Preamp", selection: Binding(
+                get: { Int(values[.preamp] ?? 0) },
+                set: { (new: Int) in
+                    values[.preamp] = Double(new)
+                    Task { await rig.setSetting(.preamp, to: new) }
+                }
+            )) {
+                Text("IPO").tag(0)
+                Text("AMP1").tag(1)
+                Text("AMP2").tag(2)
+            }
+            .pickerStyle(.segmented)
+        }
+    }
+
     private func settingSlider(_ title: String, _ setting: RigSetting,
                                range: ClosedRange<Double>) -> some View {
         HStack(spacing: 8) {

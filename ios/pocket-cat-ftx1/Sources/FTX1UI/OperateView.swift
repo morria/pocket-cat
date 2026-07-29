@@ -9,6 +9,7 @@ struct OperateView: View {
     @Environment(RigController.self) private var rig
     @State private var showingSettings = false
     @State private var showingMemories = false
+    @State private var showingMenu = false
     @State private var powerEditing: Double?
     @State private var passband = PassbandController()
 
@@ -53,6 +54,9 @@ struct OperateView: View {
                     Button("Memories…", systemImage: "bookmark") {
                         showingMemories = true
                     }
+                    Button("Menu…", systemImage: "slider.horizontal.3") {
+                        showingMenu = true
+                    }
                     Button("App Settings…", systemImage: "gear") {
                         showingSettings = true
                     }
@@ -63,6 +67,11 @@ struct OperateView: View {
         }
         .sheet(isPresented: $showingSettings) { AppSettingsView() }
         .sheet(isPresented: $showingMemories) { MemoriesView() }
+        // Quick access without leaving Operate — the menu is
+        // something you reach for mid-QSO, not a destination.
+        .sheet(isPresented: $showingMenu) {
+            NavigationStack { MenuBrowserView() }
+        }
         .task { await rig.refreshSecondaryState() }
     }
 
