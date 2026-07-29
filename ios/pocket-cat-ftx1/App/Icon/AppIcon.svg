@@ -1,0 +1,67 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!--
+    App icon source. Regenerate the asset-catalog PNG after editing:
+
+      rsvg-convert -w 1024 -h 1024 Icon/AppIcon.svg -o /tmp/icon.png
+      python3 -c 'from PIL import Image; \
+        im=Image.open("/tmp/icon.png").convert("RGBA"); \
+        f=Image.new("RGB",im.size,(21,31,41)); f.paste(im,mask=im.split()[3]); \
+        f.save("FTX1App/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png")'
+
+    The PNG must stay opaque — the App Store rejects icons with an alpha
+    channel — hence the flatten onto the icon's own background colour.
+    Corners are square: iOS applies the rounded mask itself.
+  -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#24313f"/>
+      <stop offset="1" stop-color="#151f29"/>
+    </linearGradient>
+    <filter id="txtshadow" x="-25%" y="-25%" width="150%" height="150%">
+      <feDropShadow dx="0" dy="7" stdDeviation="12" flood-color="#000000" flood-opacity="0.6"/>
+    </filter>
+  </defs>
+
+  <rect width="1024" height="1024" fill="url(#bg)"/>
+
+  <!-- VFO dial: capsule ticks sweeping cool to warm around a knob whose
+       face carries a finger dimple. Drawn before the label so the text
+       sits on top of it. -->
+  <g>
+    <path d="M 512.0 148.0 L 512.0 66.0" stroke="#5cb8b2" stroke-width="40" stroke-linecap="round"/>
+    <path d="M 611.5 163.8 L 636.8 85.8" stroke="#5cb8b2" stroke-width="40" stroke-linecap="round"/>
+    <path d="M 701.3 209.5 L 749.5 143.2" stroke="#5cb8b2" stroke-width="40" stroke-linecap="round"/>
+    <path d="M 772.5 280.7 L 838.8 232.5" stroke="#5cb8b2" stroke-width="40" stroke-linecap="round"/>
+    <path d="M 818.2 370.5 L 896.2 345.2" stroke="#5cb8b2" stroke-width="40" stroke-linecap="round"/>
+    <path d="M 834.0 470.0 L 916.0 470.0" stroke="#74b48c" stroke-width="40" stroke-linecap="round"/>
+    <path d="M 818.2 569.5 L 896.2 594.8" stroke="#74b48c" stroke-width="40" stroke-linecap="round"/>
+    <path d="M 772.5 659.3 L 838.8 707.5" stroke="#74b48c" stroke-width="40" stroke-linecap="round"/>
+    <path d="M 701.3 730.5 L 749.5 796.8" stroke="#74b48c" stroke-width="40" stroke-linecap="round"/>
+    <path d="M 611.5 776.2 L 636.8 854.2" stroke="#74b48c" stroke-width="40" stroke-linecap="round"/>
+    <path d="M 512.0 792.0 L 512.0 874.0" stroke="#e8c765" stroke-width="40" stroke-linecap="round"/>
+    <path d="M 412.5 776.2 L 387.2 854.2" stroke="#e8c765" stroke-width="40" stroke-linecap="round"/>
+    <path d="M 322.7 730.5 L 274.5 796.8" stroke="#e8c765" stroke-width="40" stroke-linecap="round"/>
+    <path d="M 251.5 659.3 L 185.2 707.5" stroke="#e8c765" stroke-width="40" stroke-linecap="round"/>
+    <path d="M 205.8 569.5 L 127.8 594.8" stroke="#e8c765" stroke-width="40" stroke-linecap="round"/>
+    <path d="M 190.0 470.0 L 108.0 470.0" stroke="#e08e6f" stroke-width="40" stroke-linecap="round"/>
+    <path d="M 205.8 370.5 L 127.8 345.2" stroke="#e08e6f" stroke-width="40" stroke-linecap="round"/>
+    <path d="M 251.5 280.7 L 185.2 232.5" stroke="#e08e6f" stroke-width="40" stroke-linecap="round"/>
+    <path d="M 322.7 209.5 L 274.5 143.2" stroke="#e08e6f" stroke-width="40" stroke-linecap="round"/>
+    <path d="M 412.5 163.8 L 387.2 85.8" stroke="#e08e6f" stroke-width="40" stroke-linecap="round"/>
+    <circle cx="512" cy="470" r="236" fill="none" stroke="#f0e6d2" stroke-width="26"/>
+    <circle cx="593.4" cy="353.7" r="60" fill="none" stroke="#f0e6d2" stroke-width="22"/>
+  </g>
+
+  <!-- Label: a dark stroke pass under a white fill pass. Two passes
+       because librsvg ignores paint-order, and a single stroked text
+       would paint the outline over the glyphs instead of behind them. -->
+  <g filter="url(#txtshadow)">
+    <text x="512" y="890" font-family="Helvetica Neue" font-weight="bold"
+          font-size="152" letter-spacing="4" text-anchor="middle"
+          fill="none" stroke="#0d141b" stroke-width="30"
+          stroke-linejoin="round">FTX1</text>
+  </g>
+  <text x="512" y="890" font-family="Helvetica Neue" font-weight="bold"
+        font-size="152" letter-spacing="4" text-anchor="middle"
+        fill="#ffffff">FTX1</text>
+</svg>

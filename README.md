@@ -68,6 +68,7 @@ the next. The reference detail lives alongside the thing it describes:
 | Firmware build / test / flash | [`esp32s3/README.md`](esp32s3/README.md) |
 | FT-891 app build / test / install | [`ios/pocket-cat-ft891`](ios/pocket-cat-ft891) |
 | QMX app build / test / install | [`ios/pocket-cat-qmx`](ios/pocket-cat-qmx) |
+| FTX-1 app build / test / install | [`ios/pocket-cat-ftx1`](ios/pocket-cat-ftx1) |
 
 A unit is a XIAO ESP32-S3 (the version with the U.FL antenna connector — there
 is no onboard antenna), a 602535 LiPo cell, a TPS61023 boost module to feed
@@ -84,6 +85,11 @@ Bag and bench use.
 RF power, tuner, split/clarifier, hold-to-talk PTT), all 159 menu items in
 plain English, and profiles that capture the radio's full configuration to
 iCloud Drive and diff it against the live rig.
+
+**[FTX-1](ios/pocket-cat-ftx1)** — the FT-891 surface extended for a
+full-mode SDR: every newcat mode including C4FM and DATA-FM, a CW keyboard
+driving the radio's memory keyer, and raw `EX` menu access with your own
+bookmarks.
 
 **[QMX](ios/pocket-cat-qmx)** — operate (four modes plus sideband, RIT, split,
 keyer), the radio's **entire menu tree** discovered live over the QMX `MM`/`ML`
@@ -119,6 +125,8 @@ ios/
                     simulator) + FT891UI (SwiftUI) + xcodegen app shell
   pocket-cat-qmx/   QMX iOS app — QMXKit (MM/ML menu client, profiles,
                     simulator) + QMXUI (SwiftUI) + xcodegen app shell
+  pocket-cat-ftx1/  FTX-1 iOS app — FTX1Kit (Yaesu commands, passband,
+                    memories) + FTX1UI (SwiftUI) + xcodegen app shell
 BOM.md              bill of materials for one unit
 enclosure/          3D-printable case — pocket_cat_case.scad + base/lid STLs,
                     with printing and assembly instructions

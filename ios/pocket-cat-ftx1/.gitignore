@@ -1,0 +1,7 @@
+.build/
+.swiftpm/
+xcuserdata/
+DerivedData/
+.DS_Store
+# Regenerate with: cd App && xcodegen generate
+App/FT891.xcodeproj/

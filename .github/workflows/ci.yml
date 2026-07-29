@@ -75,6 +75,24 @@ jobs:
             -skipMacroValidation \
             CODE_SIGNING_ALLOWED=NO
 
+  ftx1-app:
+    name: FTX-1 app (swift test + iOS build)
+    runs-on: macos-15
+    defaults:
+      run:
+        working-directory: ios/pocket-cat-ftx1
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and test (FTX1Kit + sim integration)
+        run: swift test
+      - name: iOS simulator build (FTX1UI, SwiftUI surface)
+        run: |
+          xcodebuild build \
+            -scheme FTX1UI \
+            -destination 'generic/platform=iOS Simulator' \
+            -skipMacroValidation \
+            CODE_SIGNING_ALLOWED=NO
+
   firmware-build:
     name: ESP-IDF build (esp32s3)
     runs-on: ubuntu-latest
