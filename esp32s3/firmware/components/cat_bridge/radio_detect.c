@@ -32,9 +32,14 @@ rd_profile_t radio_detect(const rd_device_t *dev)
         .default_baud = RD_DEFAULT_BAUD,
     };
 
-    /* 1. CP2105 → FT-891 profile: open the Enhanced (ECI) interface. */
+    /* 1. CP2105 → Yaesu profile on the Enhanced (ECI) interface. The FTX-1
+     * carries the same CP2105 behind an internal hub; behind a hub it is an
+     * FTX-1 (generic Yaesu, any ID accepted), directly attached it is an
+     * FT-891 (exact ID0650). Same chip, same CAT interface, same dialect —
+     * only the reported model and the app's ID-probe strictness differ. */
     if (dev->vid == RD_VID_SILABS && dev->pid == RD_PID_CP2105) {
-        p.radio = CTRL_RADIO_FT891;
+        p.radio = dev->via_hub ? CTRL_RADIO_GENERIC_CP210X
+                               : CTRL_RADIO_FT891;
         p.driver = RD_DRIVER_CP210X;
         p.cat_iface = RD_FT891_CAT_IFACE;
         return p;

@@ -13,12 +13,34 @@ static void test_ft891_cp2105(void)
         { .number = 0, .if_class = RD_CLASS_VENDOR },
         { .number = 1, .if_class = RD_CLASS_VENDOR },
     };
-    rd_device_t dev = { RD_VID_SILABS, RD_PID_CP2105, ifs, 2 };
+    rd_device_t dev = { RD_VID_SILABS, RD_PID_CP2105, ifs, 2, false };
     rd_profile_t p = radio_detect(&dev);
     TEST_ASSERT_EQUAL_INT(CTRL_RADIO_FT891, p.radio);
     TEST_ASSERT_EQUAL_INT(RD_DRIVER_CP210X, p.driver);
     TEST_ASSERT_EQUAL_UINT8(RD_FT891_CAT_IFACE, p.cat_iface); /* Enhanced/ECI */
     TEST_ASSERT_EQUAL_UINT32(4800, p.default_baud); /* factory default */
+}
+
+static void test_ftx1_cp2105_behind_hub(void)
+{
+    /* The FTX-1's CAT chip is a CP2105 (same PID as the FT-891) reached
+     * through its internal hub. via_hub must flip it to the generic Yaesu
+     * profile (any-ID probe), not FT-891 (exact ID0650), while keeping the
+     * same CP210x driver and Enhanced interface. */
+    static const rd_iface_t ifs[] = {
+        { .number = 0, .if_class = RD_CLASS_VENDOR },
+        { .number = 1, .if_class = RD_CLASS_VENDOR },
+    };
+    rd_device_t dev = { RD_VID_SILABS, RD_PID_CP2105, ifs, 2,
+                        .via_hub = true };
+    rd_profile_t p = radio_detect(&dev);
+    TEST_ASSERT_EQUAL_INT(CTRL_RADIO_GENERIC_CP210X, p.radio);
+    TEST_ASSERT_EQUAL_INT(RD_DRIVER_CP210X, p.driver);
+    TEST_ASSERT_EQUAL_UINT8(RD_FT891_CAT_IFACE, p.cat_iface);
+
+    /* And the bare CP2105 (no hub) stays an FT-891 — same fixture, hub off. */
+    dev.via_hub = false;
+    TEST_ASSERT_EQUAL_INT(CTRL_RADIO_FT891, radio_detect(&dev).radio);
 }
 
 static void test_cp2102_generic_profile_not_ft891(void)
@@ -27,7 +49,7 @@ static void test_cp2102_generic_profile_not_ft891(void)
     static const rd_iface_t ifs[] = {
         { .number = 0, .if_class = RD_CLASS_VENDOR },
     };
-    rd_device_t dev = { RD_VID_SILABS, RD_PID_CP2102, ifs, 1 };
+    rd_device_t dev = { RD_VID_SILABS, RD_PID_CP2102, ifs, 1, false };
     rd_profile_t p = radio_detect(&dev);
     TEST_ASSERT_EQUAL_INT(CTRL_RADIO_GENERIC_CP210X, p.radio);
     TEST_ASSERT_EQUAL_INT(RD_DRIVER_CP210X, p.driver);
@@ -44,7 +66,7 @@ static void test_ftx1_composite_audio_plus_cp210x(void)
         { .number = 2, .if_class = RD_CLASS_AUDIO, .if_subclass = 0x02 },
         { .number = 3, .if_class = RD_CLASS_VENDOR }, /* the UART */
     };
-    rd_device_t dev = { RD_VID_SILABS, 0xEA71 /* not EA70 */, ifs, 4 };
+    rd_device_t dev = { RD_VID_SILABS, 0xEA71 /* not EA70 */, ifs, 4, false };
     rd_profile_t p = radio_detect(&dev);
     TEST_ASSERT_EQUAL_INT(CTRL_RADIO_GENERIC_CP210X, p.radio);
     TEST_ASSERT_EQUAL_UINT8(3, p.cat_iface); /* skipped the audio ifaces */
@@ -61,7 +83,7 @@ static void test_qmx_composite_cdc_plus_audio(void)
           .if_subclass = RD_SUBCLASS_ACM },
         { .number = 4, .if_class = RD_CLASS_CDC_DATA },
     };
-    rd_device_t dev = { 0x0483, 0xA34C, ifs, 5 }; /* STMicro example IDs */
+    rd_device_t dev = { 0x0483, 0xA34C, ifs, 5, false }; /* STMicro example IDs */
     rd_profile_t p = radio_detect(&dev);
     TEST_ASSERT_EQUAL_INT(CTRL_RADIO_QMX_CDC, p.radio);
     TEST_ASSERT_EQUAL_INT(RD_DRIVER_CDC_ACM, p.driver);
@@ -75,7 +97,7 @@ static void test_plain_cdc_acm_device(void)
           .if_subclass = RD_SUBCLASS_ACM },
         { .number = 1, .if_class = RD_CLASS_CDC_DATA },
     };
-    rd_device_t dev = { 0x1234, 0x5678, ifs, 2 };
+    rd_device_t dev = { 0x1234, 0x5678, ifs, 2, false };
     rd_profile_t p = radio_detect(&dev);
     TEST_ASSERT_EQUAL_INT(CTRL_RADIO_QMX_CDC, p.radio);
     TEST_ASSERT_EQUAL_UINT8(0, p.cat_iface);
@@ -86,7 +108,7 @@ static void test_ftdi_fallback(void)
     static const rd_iface_t ifs[] = {
         { .number = 0, .if_class = RD_CLASS_VENDOR },
     };
-    rd_device_t dev = { RD_VID_FTDI, 0x6001, ifs, 1 };
+    rd_device_t dev = { RD_VID_FTDI, 0x6001, ifs, 1, false };
     rd_profile_t p = radio_detect(&dev);
     TEST_ASSERT_EQUAL_INT(CTRL_RADIO_GENERIC_FTDI, p.radio);
     TEST_ASSERT_EQUAL_INT(RD_DRIVER_FTDI, p.driver);
@@ -98,7 +120,7 @@ static void test_unsupported_device(void)
     static const rd_iface_t ifs[] = {
         { .number = 0, .if_class = 0x03 /* HID */ },
     };
-    rd_device_t dev = { 0x046D, 0xC31C, ifs, 1 };
+    rd_device_t dev = { 0x046D, 0xC31C, ifs, 1, false };
     rd_profile_t p = radio_detect(&dev);
     TEST_ASSERT_EQUAL_INT(CTRL_RADIO_UNSUPPORTED, p.radio);
     TEST_ASSERT_EQUAL_INT(RD_DRIVER_NONE, p.driver);
@@ -106,7 +128,7 @@ static void test_unsupported_device(void)
 
 static void test_no_interfaces(void)
 {
-    rd_device_t dev = { 0x0000, 0x0000, NULL, 0 };
+    rd_device_t dev = { 0x0000, 0x0000, NULL, 0, false };
     rd_profile_t p = radio_detect(&dev);
     TEST_ASSERT_EQUAL_INT(CTRL_RADIO_UNSUPPORTED, p.radio);
 }
@@ -120,7 +142,7 @@ static void test_cp2105_match_beats_class_scan(void)
         { .number = 1, .if_class = RD_CLASS_CDC_COMM,
           .if_subclass = RD_SUBCLASS_ACM },
     };
-    rd_device_t dev = { RD_VID_SILABS, RD_PID_CP2105, ifs, 2 };
+    rd_device_t dev = { RD_VID_SILABS, RD_PID_CP2105, ifs, 2, false };
     rd_profile_t p = radio_detect(&dev);
     TEST_ASSERT_EQUAL_INT(CTRL_RADIO_FT891, p.radio);
 }
@@ -129,6 +151,7 @@ int main(void)
 {
     UNITY_BEGIN();
     RUN_TEST(test_ft891_cp2105);
+    RUN_TEST(test_ftx1_cp2105_behind_hub);
     RUN_TEST(test_cp2102_generic_profile_not_ft891);
     RUN_TEST(test_ftx1_composite_audio_plus_cp210x);
     RUN_TEST(test_qmx_composite_cdc_plus_audio);

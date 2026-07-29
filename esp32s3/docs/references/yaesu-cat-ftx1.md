@@ -37,16 +37,39 @@ Identical to the FT-891:
   a full-mode SDR, so expect the DATA/C4FM codes (`8`,`A`–`F`) to be live.
 - `IF;`, `FA;`/`FB;`, `TX;`, `ID;`, `PS;`, `AI;`, meters, gains — as FT-891.
 
+## USB descriptor — CONFIRMED on hardware (2026-07-28)
+
+The FTX-1 does **not** present a bare CP210x. It enumerates as a composite
+**behind an internal USB hub** (captured from a real rig via macOS):
+
+| Function | VID:PID | Notes |
+|---|---|---|
+| USB 2.0 Hub | `05E3:0610` | Genesys Logic; the *root* device the bridge sees |
+| **CP2105 Dual UART** | `10C4:EA70` | **the CAT chip — identical PID to the FT-891**; two UARTs (ECI + SCI) |
+| YAESU HRI USB I/F | Yaesu VID : `0030` | secondary Yaesu interface |
+| USB Audio | `0D8C:0016` | C-Media; the digital-mode sound card |
+
+**Consequence for the bridge:** the USB host must enumerate *through the hub*
+to reach the CP2105 — plain single-device enumeration sees only the hub and
+reports `UNSUPPORTED`. The firmware enables `CONFIG_USB_HOST_HUBS_SUPPORTED`
+and `usb_link` selects the CP2105 among the hub's children, ignoring the audio
+and HRI siblings (`radio_detect` `via_hub` → generic-Yaesu profile, since the
+shared `EA70` PID is otherwise indistinguishable from the FT-891).
+
+Once reached, CAT is a CP2105 exactly like the FT-891 — same Enhanced (ECI)
+interface, same Yaesu dialect.
+
 ## Deltas to confirm at bring-up
 
 Fill these in from the FTX-1 CAT Operation Reference Manual + a live rig:
 
 - [ ] `ID;` response code for the FTX-1 (FT-891 is `0650`; FT-710 is `0761`).
-      Needed as the baud-probe / model-detect token.
-- [ ] Exact USB VID/**PID**, and whether a **USB audio (UAC) interface** is
-      present alongside the two UARTs (composite descriptor dump).
-- [ ] Which of the dual UARTs is Enhanced vs Standard at the USB **interface
-      index** level (don't assume it matches the FT-891's CP2105 numbering).
+      Needed as the baud-probe / model-detect token. (The generic-CP210x
+      profile accepts any ID, so CAT works before this is known.)
+- [x] USB VID/PID and composite layout — **confirmed above.**
+- [ ] Which of the CP2105's dual UARTs is Enhanced vs Standard at the USB
+      **interface index** level (assumed ECI = interface 0, as on the FT-891;
+      confirm the CAT UART is reachable there through the hub).
 - [ ] Any FTX-1-only commands (band-stacking, SDR scope/`SC`, dual-receive
       `DR`, GPS/`GP`, etc.) the app may want — not required for the bridge.
 - [ ] Whether `CAT RTS`-equivalent menu forces RTS assertion for CAT.

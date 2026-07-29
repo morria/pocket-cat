@@ -43,6 +43,12 @@ typedef struct {
     uint16_t vid;
     uint16_t pid;
     rd_profile_t profile;
+    /* Suppress the "unsupported device" report for infrastructure a hubbed
+     * radio drags in: the hub itself and the FTX-1's sibling audio/HRI
+     * functions are not radios, but a sibling (the CP2105) may be — so
+     * unsupported siblings must not mask it (docs/qmx-panadapter.md is a
+     * different feature; this is the FTX-1 hub path, §5.2). */
+    bool ignore_if_unsupported;
 } link_evt_t;
 
 typedef struct {
@@ -107,20 +113,35 @@ static void on_new_device(usb_device_handle_t usb_dev)
         };
     }
 
+    /* Behind an external hub? The FTX-1's CAT chip is a CP2105 sitting
+     * behind an internal hub — via_hub distinguishes it from a bare
+     * FT-891, and tells us to keep looking rather than report unsupported
+     * for the hub's non-radio siblings. */
+    usb_device_info_t info;
+    bool via_hub = false;
+    if (usb_host_device_info(usb_dev, &info) == ESP_OK) {
+        via_hub = info.parent.dev_hdl != NULL;
+    }
+    bool is_hub = dev_desc->bDeviceClass == USB_CLASS_HUB;
+
     rd_device_t dev = {
         .vid = dev_desc->idVendor,
         .pid = dev_desc->idProduct,
         .ifaces = ifaces,
         .n_ifaces = n_ifaces,
+        .via_hub = via_hub,
     };
     link_evt_t evt = {
         .type = EVT_DEVICE_SEEN,
         .vid = dev.vid,
         .pid = dev.pid,
         .profile = radio_detect(&dev),
+        .ignore_if_unsupported = is_hub || via_hub,
     };
-    ESP_LOGI(TAG, "device %04x:%04x (%u ifaces) -> radio=%d driver=%d iface=%u",
-             dev.vid, dev.pid, (unsigned)n_ifaces, evt.profile.radio,
+    ESP_LOGI(TAG,
+             "device %04x:%04x (%u ifaces%s%s) -> radio=%d driver=%d iface=%u",
+             dev.vid, dev.pid, (unsigned)n_ifaces, is_hub ? " hub" : "",
+             via_hub ? " hubbed" : "", evt.profile.radio,
              evt.profile.driver, evt.profile.cat_iface);
     xQueueSend(s_link.evq, &evt, 0);
 }
@@ -224,9 +245,17 @@ static void try_open(const link_evt_t *evt)
 
     if (evt->profile.driver == RD_DRIVER_NONE ||
         evt->profile.driver == RD_DRIVER_FTDI) {
-        /* Unsupported (or not-yet-implemented FTDI): stay attached and
-         * report so the app can tell the user (§5.2). Reported as an error
-         * state, not ENUMERATED — we never opened a CAT interface. */
+        /* A hub, or a hubbed radio's non-radio sibling (FTX-1 audio/HRI):
+         * don't report unsupported — a sibling CP2105 may still be coming
+         * and would open normally, and reporting ERROR here would mask it. */
+        if (evt->ignore_if_unsupported) {
+            ESP_LOGI(TAG, "ignoring non-radio %04x:%04x (hub/sibling)",
+                     evt->vid, evt->pid);
+            return;
+        }
+        /* Directly-attached unsupported (or not-yet-implemented FTDI):
+         * stay attached and report so the app can tell the user (§5.2).
+         * Reported as an error state, not ENUMERATED — no CAT interface. */
         bridge_on_usb_unsupported(s_link.bridge,
                                   evt->profile.driver == RD_DRIVER_FTDI
                                       ? CTRL_RADIO_GENERIC_FTDI

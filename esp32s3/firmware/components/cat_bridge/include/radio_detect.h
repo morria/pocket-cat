@@ -12,6 +12,7 @@
 #ifndef RADIO_DETECT_H
 #define RADIO_DETECT_H
 
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -51,6 +52,11 @@ typedef struct {
     uint16_t pid;
     const rd_iface_t *ifaces;
     size_t n_ifaces;
+    /* True when the device sits behind an external USB hub. The FTX-1
+     * presents its CAT chip — a CP2105, same PID as the FT-891 — behind an
+     * internal hub, so this is the only signal that tells the two apart
+     * (docs/references/yaesu-cat-ftx1.md, confirmed at bring-up). */
+    bool via_hub;
 } rd_device_t;
 
 typedef enum {

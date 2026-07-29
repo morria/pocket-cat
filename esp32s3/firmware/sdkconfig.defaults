@@ -30,3 +30,9 @@ CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
 # 256-byte default and would fail enumeration before radio_detect runs
 # (docs/qmx-panadapter.md §5.1).
 CONFIG_USB_HOST_CONTROL_TRANSFER_MAX_SIZE=1024
+
+# External hub support: the FTX-1 presents its CP2105 CAT chip behind an
+# internal USB hub (Genesys 05E3:0610 → CP2105 + Yaesu HRI + C-Media audio),
+# so the host must enumerate through the hub to reach the radio
+# (docs/references/yaesu-cat-ftx1.md).
+CONFIG_USB_HOST_HUBS_SUPPORTED=y
