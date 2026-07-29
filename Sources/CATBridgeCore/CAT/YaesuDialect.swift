@@ -256,10 +256,18 @@ public struct YaesuDialect: CATDialect {
     // MARK: - Field parsers
 
     private func parseFrequency(_ reply: String) throws -> Frequency {
-        // FA + 9 digits + ;
-        let chars = Array(reply)
-        guard chars.count == 12, reply.hasPrefix("FA"),
-              let hz = UInt64(String(chars[2...10]))
+        // FA + digits + ;. The field is nine digits on an FT-891; newer
+        // radios in the family are documented with wider ones, so take
+        // whatever digits are there rather than a fixed slice.
+        guard reply.hasPrefix("FA"), reply.hasSuffix(";") else {
+            throw CATBridgeError.malformedResponse(reply)
+        }
+        // Nine on an FT-891, documented wider on newer radios in the family.
+        // Bounded rather than open-ended: a two-digit "FA01;" is a truncated
+        // reply, not a 1 Hz VFO.
+        let digits = reply.dropFirst(2).dropLast()
+        guard (9...11).contains(digits.count), digits.allSatisfy(\.isNumber),
+              let hz = UInt64(digits)
         else { throw CATBridgeError.malformedResponse(reply) }
         return Frequency(hz: hz)
     }
@@ -320,12 +328,27 @@ public struct YaesuDialect: CATDialect {
     }
 
     private func parseInfo(_ reply: String) throws -> RigInfo {
-        // IF | mem(3) | freq(9) | clar(5) | rxclar(1) | txclar(1) | mode(1) …
+        // IF | field(3 or 5) | freq(9) | clar(±4) | rxclar | txclar | mode …
+        //
+        // The field between "IF" and the frequency is **three** characters
+        // on an FT-891 and **five** on an FTX-1, so a fixed window reads
+        // the wrong nine digits on one radio or the other — 14.074 MHz came
+        // back as 760.140.740 on an FTX-1.
+        //
+        // Anchor on the clarifier's sign instead: it is the first `+` or
+        // `-` in the reply and always sits immediately after the frequency,
+        // whatever the leading field's width.
         let chars = Array(reply)
-        guard chars.count >= 23, reply.hasPrefix("IF"),
-              let hz = UInt64(String(chars[5...13]))
+        guard reply.hasPrefix("IF"),
+              let sign = chars.firstIndex(where: { $0 == "+" || $0 == "-" }),
+              sign >= 11,
+              let hz = UInt64(String(chars[(sign - 9)..<sign]))
         else { throw CATBridgeError.malformedResponse(reply) }
-        let mode = Self.modeForCode[chars[21]]
+        // Mode sits a fixed distance past the sign: clarifier digits (4),
+        // then RX-clar and TX-clar flags, then the mode code.
+        let modeIndex = sign + 7
+        let mode = chars.indices.contains(modeIndex)
+            ? Self.modeForCode[chars[modeIndex]] : nil
         // Yaesu IF carries no TX flag; PTT is polled via TX; separately.
         return RigInfo(frequency: Frequency(hz: hz), mode: mode,
                        isTransmitting: nil)

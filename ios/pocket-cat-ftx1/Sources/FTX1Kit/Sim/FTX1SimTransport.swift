@@ -215,13 +215,14 @@ public struct FTX1SimRig: Sendable {
     }
 
     func ifAnswer() -> String {
-        // Same shape as pocket-cat's simulator (parser-compatible; real-rig
-        // offsets carry the documented bring-up caveat).
+        // Five characters between "IF" and the frequency, not the FT-891's
+        // three — inferred from a real FTX-1, which reported 14.074 MHz in
+        // a position two characters right of the FT-891's.
         let freq = String(format: "%09d", vfoA)
         let clar = String(format: "%@%04d", clarifierOffset < 0 ? "-" : "+",
                           abs(clarifierOffset))
         let rxClar = clarifierOn ? "1" : "0"
-        return "IF001\(freq)\(clar)\(rxClar)0\(modeCode)000000;"
+        return "IF00760\(freq)\(clar)\(rxClar)0\(modeCode)000000;"
     }
 
     var modeIsAMorFM: Bool { "45BD".contains(modeCode) }
