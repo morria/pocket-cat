@@ -73,3 +73,46 @@ struct PanadapterSimTests {
         #expect(abs(atVfo - Double(vfo)) < 200) // one bin ≈ 187 Hz
     }
 }
+
+@Suite("Oscillator leakage bin")
+struct LeakageBinTests {
+    /// The spike on a dummy load sat on the VFO marker, a quarter in — not
+    /// at the frame centre, because the QMX shifts its I/Q +12 kHz while
+    /// the hardware oscillator stays at the VFO.
+    @Test func leakageLandsWhereTheVFOIsDrawn() {
+        for bins in [64, 128, 256, 512] {
+            let leak = QMXSpectrum.leakageBin(binCount: bins,
+                                              sampleRateHz: 48_000)
+            let drawn = QMXSpectrum.vfoBinFraction(binCount: bins,
+                                                   sampleRateHz: 48_000)
+            let drawnBin = Int((drawn * Double(bins - 1)).rounded())
+            #expect(abs(leak - drawnBin) <= 1,
+                    "\(bins) bins: leakage \(leak) vs VFO \(drawnBin)")
+        }
+    }
+
+    @Test func aQuarterInForFortyEightKilohertz() {
+        #expect(QMXSpectrum.leakageBin(binCount: 256,
+                                       sampleRateHz: 48_000) == 64)
+        #expect(QMXSpectrum.leakageBin(binCount: 512,
+                                       sampleRateHz: 48_000) == 128)
+    }
+
+    /// It tracks the sample rate rather than assuming a quarter.
+    @Test func itFollowsTheSampleRate() {
+        // At 24 kHz the same 12 kHz offset is a full half-span down.
+        #expect(QMXSpectrum.leakageBin(binCount: 256,
+                                       sampleRateHz: 24_000) == 0)
+    }
+
+    @Test func suppressionCoversTheLeakageNotTheCentre() {
+        var bins = [UInt8](repeating: 200, count: 256)
+        bins[64] = 8      // the leakage, a quarter in
+        let frame = SpectrumFrame(sequence: 0, sampleRateHz: 48_000,
+                                  bins: bins)
+        let cleaned = frame.binsWithDCSuppressed(
+            atBin: QMXSpectrum.leakageBin(binCount: 256,
+                                          sampleRateHz: 48_000))
+        #expect(cleaned[64] == 200, "the leakage spike survived")
+    }
+}

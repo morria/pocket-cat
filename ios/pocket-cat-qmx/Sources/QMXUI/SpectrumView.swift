@@ -63,7 +63,10 @@ struct SpectrumView: View {
                 waterfall.clear()
             }
             lastCentreHz = centreHz
-            waterfall.push(frame.bins)
+            waterfall.push(frame.binsWithDCSuppressed(
+                atBin: QMXSpectrum.leakageBin(
+                    binCount: frame.bins.count,
+                    sampleRateHz: frame.sampleRateHz)))
         }
         .onChange(of: scenePhase) { _, phase in
             // A background waterfall only drains the bridge's cell.
@@ -173,7 +176,13 @@ struct TraceView: View {
 
     var body: some View {
         Canvas { context, size in
-            let bins = frame.bins
+            // The receiver leaks its own oscillator onto the tuned
+            // frequency; without this a dummy load shows a strong
+            // carrier at the VFO.
+            let bins = frame.binsWithDCSuppressed(
+                atBin: QMXSpectrum.leakageBin(
+                    binCount: frame.bins.count,
+                    sampleRateHz: frame.sampleRateHz))
             guard bins.count > 1 else { return }
             var path = Path()
             for (i, value) in bins.enumerated() {

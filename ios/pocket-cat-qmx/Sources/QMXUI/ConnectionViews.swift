@@ -88,6 +88,9 @@ struct ConnectionSheet: View {
                             LabeledContent("CAT rate",
                                            value: "\(baud) baud")
                         }
+                        NavigationLink("CAT Console") { CATConsoleView() }
+                        LabeledContent("Frequency writes",
+                                       value: rig.frequencyWriteForm.rawValue)
                         Button("Disconnect", role: .destructive) {
                             Task {
                                 await rig.disconnect()

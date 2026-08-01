@@ -32,6 +32,20 @@ public enum QMXSpectrum {
         return dcHz + Double(bin - binCount / 2) * binHz
     }
 
+    /// The bin carrying the receiver's oscillator leakage.
+    ///
+    /// Not the frame's DC bin. The QMX shifts its I/Q by +12 kHz, so the
+    /// stream's centre is VFO + 12 kHz while the hardware oscillator — and
+    /// therefore its leakage — stays at the VFO, a quarter-span down. The
+    /// firmware's mean subtraction cleans the stream's DC bin, where there
+    /// is nothing to clean; this is the bin that actually needs covering.
+    public static func leakageBin(binCount: Int,
+                                  sampleRateHz: UInt32) -> Int {
+        let binHz = Double(sampleRateHz) / Double(binCount)
+        let bin = Double(binCount) / 2 - Double(ifOffsetHz) / binHz
+        return max(0, min(binCount - 1, Int(bin.rounded())))
+    }
+
     /// Fractional bin position of the VFO across the frame (0…1). For a
     /// 48 kHz / +12 kHz QMX this is 0.25 — a quarter in from the left.
     public static func vfoBinFraction(binCount: Int,

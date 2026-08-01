@@ -41,6 +41,17 @@ public final class RigController {
     /// `Band config.` table at connect. Nil means "not established" — show
     /// every band rather than hiding ones the radio may well have.
     public private(set) var supportedBands: [SupportedBand]?
+    /// Which `FA` form this radio honours, learned by reading back after a
+    /// set. Surfaced so the connection screen can report it rather than
+    /// leaving a silent failure.
+    public private(set) var frequencyWriteForm: FrequencyWriteForm = .untested
+
+    public enum FrequencyWriteForm: String, Sendable {
+        case untested
+        case padded     // FA00007030000;  — the TS-480 form
+        case unpadded   // FA7030000;      — the form the QMX manual shows
+        case unknown    // neither moved the dial
+    }
     /// TX-time meters, polled only while transmitting.
     public private(set) var swr: Double?
     public private(set) var agcDB: Int?
@@ -201,6 +212,13 @@ public final class RigController {
         supportedBands = bands
     }
 
+    /// Send a raw CAT command and return the reply, for the console.
+    public func rawCAT(_ wire: String) async throws -> String? {
+        guard let session else { throw CATBridgeError.notReady }
+        return try await session.rawCommand(wire, expectsReply: true,
+                                            isIdempotent: true)
+    }
+
     // MARK: - Band support
 
     /// Asks the radio which bands it has. A QMX is built around one filter
@@ -297,13 +315,70 @@ public final class RigController {
         while let target = pendingFrequency {
             pendingFrequency = nil
             guard let session else { return }
-            try? await session.setFrequency(target)
+            // Write the VFO that is actually in use. `FA` addresses VFO A
+            // specifically, while the frequency on screen comes from `IF`,
+            // which reports whichever VFO is active — so on VFO B the
+            // display was right and every write went to the other VFO.
+            if vfoMode == .vfoB {
+                try? await session.setVFOB(target)
+            } else {
+                try? await session.setFrequency(target)
+            }
             landed = target
+        }
+        // Verify, and fall back if the radio ignored it.
+        //
+        // The library writes the TS-480 form — `FA` plus eleven zero-padded
+        // digits. The QMX CAT reference notes that a short form sets too
+        // (`FA7030000;`), and on real hardware reads worked while sets did
+        // not, so which form this firmware accepts is not settled. Rather
+        // than guess, write, read back, and try the unpadded form once if
+        // the radio did not move.
+        if let landed, let session {
+            await confirmTuned(to: landed, session: session)
         }
         // Record where tuning settled, not every intermediate value a
         // digit-drag produced.
         if let landed {
             StationMemory.shared.noteVisit(hz: landed.hertz, mode: state?.mode)
+        }
+    }
+
+    /// Reads the VFO back after a set and retries once in the short form.
+    /// Records which form the radio actually honoured so the fallback can
+    /// become the default when that is known.
+    private func confirmTuned(to target: Frequency,
+                              session: TransceiverSession) async {
+        // A dial that has moved on since is not a failed write.
+        guard pendingFrequency == nil else { return }
+        let readBack: Frequency?
+        if vfoMode == .vfoB {
+            readBack = try? await session.readVFOB()
+        } else {
+            readBack = try? await session.readFrequency()
+        }
+        guard let readBack else { return }
+        if readBack.hertz == target.hertz {
+            frequencyWriteForm = .padded
+            return
+        }
+        // Unpadded: "FA7030000;" rather than "FA00007030000;".
+        let prefix = vfoMode == .vfoB ? "FB" : "FA"
+        _ = try? await session.rawCommand("\(prefix)\(target.hertz);",
+                                          expectsReply: false)
+        let second: Frequency?
+        if vfoMode == .vfoB {
+            second = try? await session.readVFOB()
+        } else {
+            second = try? await session.readFrequency()
+        }
+        guard let second else { return }
+        if second.hertz == target.hertz {
+            frequencyWriteForm = .unpadded
+        } else {
+            frequencyWriteForm = .unknown
+            notify("The radio isn't accepting frequency changes — try the "
+                   + "CAT console to find the form it wants.")
         }
     }
 

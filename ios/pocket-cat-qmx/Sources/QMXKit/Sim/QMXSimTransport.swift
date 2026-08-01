@@ -206,6 +206,10 @@ public struct QMXSimRig: Sendable {
     public var lsb = false               // Q1 sideband
     public var split = false             // SP
     public var vfoMode = 0               // FR/FT: 0 A, 1 B, 2 split
+    /// Set false to model a radio that rejects the eleven-digit `FA` set —
+    /// the failure seen on real hardware, so the app's read-back-and-retry
+    /// can be tested.
+    public var acceptsPaddedFrequencySets = true
     public var ritOn = false
     public var ritOffset = 0             // Hz, ±9999
     public var ritAbsolute = true        // "CAT RU and RD" behavior
@@ -421,6 +425,11 @@ public struct QMXSimRig: Sendable {
             return respondMenu(body: body)
         }
         if body.hasPrefix("FA"), let hz = UInt64(body.dropFirst(2)) {
+            // Both the padded TS-480 form and the short form the QMX
+            // manual shows; leading zeros parse away either way.
+            guard acceptsPaddedFrequencySets || body.count <= 10 else {
+                return "?;"   // a firmware that only takes the short form
+            }
             vfoA = hz
             return nil
         }

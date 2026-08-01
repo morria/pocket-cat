@@ -19,6 +19,63 @@ public struct SpectrumFrame: Sendable, Equatable {
     /// dBFS at 0.5 dB/LSB, 0 = full scale; `bins.count` is the bin total.
     public var bins: [UInt8]
 
+    public init(sequence: UInt8, sampleRateHz: UInt32, bins: [UInt8]) {
+        self.sequence = sequence
+        self.sampleRateHz = sampleRateHz
+        self.bins = bins
+    }
+
+    /// The bin carrying DC — the tuned frequency itself, after the
+    /// firmware's fftshift.
+    public var dcBin: Int { bins.count / 2 }
+
+    /// The trace with the DC spike interpolated away.
+    ///
+    /// A direct-conversion receiver leaks its local oscillator into the
+    /// mixer output, which lands exactly on the tuned frequency. The
+    /// firmware already subtracts each block's mean, and that removes a
+    /// *static* offset — but the leakage drifts in amplitude and phase, so
+    /// a residue survives and window leakage smears it into the
+    /// neighbouring bins. On a dummy load it paints a strong carrier at the
+    /// VFO that is not on the air.
+    ///
+    /// Every SDR display treats this the same way: replace the affected
+    /// bins with the slope across their nearest clean neighbours. It is
+    /// cosmetic by nature — a real signal sitting exactly on the VFO is
+    /// interpolated along with the artifact, which is why the receiver's
+    /// own audio, not the waterfall, is the judge of what is there.
+    ///
+    /// - Parameters:
+    ///   - bin: where the leakage lands. Defaults to the frame centre,
+    ///     which is right for a receiver whose stream is centred on its
+    ///     oscillator. A radio that shifts its I/Q — the QMX moves it
+    ///     +12 kHz — leaves the leakage at the *hardware* oscillator
+    ///     instead, well away from the stream's own DC bin, which is why
+    ///     subtracting the block mean does nothing for it.
+    ///   - halfWidth: bins either side to replace. One covers the Hann
+    ///     window's main-lobe spill.
+    public func binsWithDCSuppressed(atBin bin: Int? = nil,
+                                     halfWidth: Int = 1) -> [UInt8] {
+        guard halfWidth >= 0, bins.count > 2 * (halfWidth + 1) else {
+            return bins
+        }
+        var out = bins
+        let centre = bin ?? dcBin
+        let low = centre - halfWidth - 1
+        let high = centre + halfWidth + 1
+        guard low >= 0, high < bins.count else { return bins }
+
+        // Bins are dB *below* full scale, so linear interpolation across
+        // them is a straight line in dB — which is what the eye expects.
+        let span = Double(high - low)
+        for index in (low + 1)..<high {
+            let t = Double(index - low) / span
+            let value = (1 - t) * Double(bins[low]) + t * Double(bins[high])
+            out[index] = UInt8(value.rounded())
+        }
+        return out
+    }
+
     /// Signal level of one bin in dBFS.
     public func dBFS(at index: Int) -> Double {
         -Double(bins[index]) / 2.0
