@@ -48,6 +48,7 @@ public final class RigController {
     private var central: CATBridgeCentral?
     #endif
     private var scanTask: Task<Void, Never>?
+    private var connectTask: Task<Void, Never>?
     private var eventTask: Task<Void, Never>?
     private var meterTask: Task<Void, Never>?
     private var pendingFrequency: Frequency?
@@ -104,25 +105,86 @@ public final class RigController {
 
     public func connectLast() async {
         guard let id = lastBridgeID else { return }
-        await connectBluetooth(id: id)
+        await connectBluetooth(id: id, rediscoverIfUnreachable: true)
     }
 
-    private func connectBluetooth(id: UUID) async {
+    private func connectBluetooth(id: UUID,
+                                  rediscoverIfUnreachable: Bool = false) async {
+        // One attempt at a time. The launch auto-connect and a tap in the
+        // connection sheet used to run concurrently against the same
+        // peripheral; each new transport took over the peripheral's
+        // delegate, starving the other attempt's handshake until it timed
+        // out, and both ended in errors with no session adopted.
+        if let running = connectTask {
+            await running.value
+            return
+        }
+        let task = Task {
+            let outcome = await self.runConnectAttempts(id: id)
+            // The saved identifier can go stale: a re-flashed bridge
+            // advertises under a new Bluetooth identity, and iOS then
+            // waits forever for the old one while the bridge sits there
+            // advertising. Scan for whatever bridge is actually there.
+            guard rediscoverIfUnreachable, case .unreachable = outcome,
+                  let found = await self.discoverBridge(
+                    timeout: .seconds(10)),
+                  found.id != id else { return }
+            self.notify("Saved bridge not reachable; found "
+                        + "\(found.name ?? "a bridge") instead.")
+            _ = await self.runConnectAttempts(id: found.id)
+        }
+        connectTask = task
+        await task.value
+        connectTask = nil
+    }
+
+    private enum ConnectOutcome { case connected, unreachable, failed }
+
+    /// First bridge a scan turns up that no other app holds, or nil after
+    /// `timeout`.
+    private func discoverBridge(timeout: Duration) async
+        -> DiscoveredBridge? {
+        let central = ensureCentral()
+        let search = Task { () -> DiscoveredBridge? in
+            for await bridge in central.bridges()
+            where !bridge.isHeldByAnotherApp {
+                return bridge
+            }
+            return nil
+        }
+        let timer = Task {
+            try? await Task.sleep(for: timeout)
+            search.cancel()
+        }
+        let found = await search.value
+        timer.cancel()
+        return found
+    }
+
+    @discardableResult
+    private func runConnectAttempts(id: UUID) async -> ConnectOutcome {
         let central = ensureCentral()
         var policy = PollingPolicy.default
         policy.enableAutoInformation = true
         // One automatic retry: first contact after (re)pairing or a bridge
-        // reboot can time out a CTRL command while the bridge is still
-        // settling (e.g. a slow CP210x line-state call); attempt two lands.
+        // reboot can still fail while the bridge is settling. The FT-891's
+        // slow CP210x line-state call is no longer a reason — SET_LINE and
+        // SET_BAUD now wait out the bridge's USB control timeout.
         for attempt in 1...2 {
             do {
                 let session = try await central.connect(id: id,
                                                         policy: policy)
+                if Task.isCancelled {
+                    // Backgrounded (or Disconnect tapped) mid-handshake:
+                    // don't keep a link the operator just gave up.
+                    await session.disconnect()
+                    return .failed
+                }
                 UserDefaults.standard.set(id.uuidString,
                                           forKey: Self.lastBridgeKey)
                 isSimulated = false
                 await adopt(session: session)
-                return
+                return .connected
             } catch {
                 let retryable: Bool = switch error as? CATBridgeError {
                 case .timedOut, .connectionLost, .radioNotResponding:
@@ -132,23 +194,32 @@ public final class RigController {
                 }
                 if attempt == 2 || !retryable {
                     notify(friendlyMessage(for: error))
-                    return
+                    if case .connectionFailed(let reason)? =
+                        error as? CATBridgeError,
+                       reason.hasPrefix("bridge not reachable") {
+                        return .unreachable
+                    }
+                    return .failed
                 }
                 try? await Task.sleep(for: .seconds(1))
             }
         }
+        return .failed
     }
 
     private func ensureCentral() -> CATBridgeCentral {
         if let central { return central }
-        let fresh = CATBridgeCentral(
-            restorationIdentifier: "ft891.central")
+        // No state restoration: iOS would keep a killed app's pending
+        // bridge connection and relaunch it in the background onto the
+        // bridge, locking out the other Pocket Cat apps on this device.
+        let fresh = CATBridgeCentral()
         central = fresh
         return fresh
     }
     #endif
 
     public func disconnect() async {
+        connectTask?.cancel()
         meterTask?.cancel()
         eventTask?.cancel()
         if let session {
@@ -190,6 +261,12 @@ public final class RigController {
         case let .bridgeOverflow(direction, dropped):
             notify("Bridge dropped \(dropped) bytes "
                    + "(\(String(describing: direction))).")
+        case .radioIdentified:
+            // Radio powered up after the bridge connected: now that the
+            // session is ready, fill the FT-891-specific state.
+            Task { await refreshSecondaryState() }
+        case .radioNotResponding:
+            notify(friendlyMessage(for: CATBridgeError.radioNotResponding))
         }
     }
 
@@ -426,6 +503,9 @@ public final class RigController {
             return "Bluetooth is unavailable — check Settings."
         case .bridgeNotFound:
             return "Bridge not found — is it powered and in range?"
+        case .bridgeInUse:
+            return "Another Pocket Cat app on this device is using the "
+                + "bridge. Close it from the app switcher, then reconnect."
         case .pairingRequired:
             return "Pairing required — accept the pairing request."
         case .bondInvalidated:
@@ -437,6 +517,8 @@ public final class RigController {
             // re-flashing) as "Peer removed pairing information".
             return "The bridge lost its pairing (re-flashed?). Forget it "
                 + "in Settings → Bluetooth, then reconnect and re-pair."
+        case let .connectionFailed(reason):
+            return "Bluetooth connection failed: \(reason)"
         case .usbRadioDisconnected:
             return "The radio's USB cable is disconnected from the bridge."
         case .radioNotResponding:
@@ -444,6 +526,9 @@ public final class RigController {
                 + "05-06 CAT RATE (set 38400 for best speed)."
         case let .radioRejected(command):
             return "Radio rejected \(command)."
+        case let .timedOut(command) where command.hasPrefix("CTRL "):
+            return "The bridge didn't answer \(command.dropFirst(5)). "
+                + "Try again; if it persists, power-cycle the bridge."
         case let .timedOut(command):
             return "No reply to \(command)."
         case .pttInterlock:

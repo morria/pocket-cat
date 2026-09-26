@@ -563,6 +563,70 @@ struct Rig {
     }
 }
 
+@Suite struct LateRadioAttachTests {
+    /// Radio powered on after the app connected to the bridge: the session
+    /// sat in `.bridgeReady` and never probed it, so the app showed "bridge
+    /// only, no radio" until the operator disconnected and reconnected.
+    @Test func radioAttachedAfterConnectIsIdentified() async throws {
+        let rig = Rig(radio: Ft891Personality(), radioID: .ft891)
+        await rig.transport.setUSBEnumerated(false)
+        try await rig.start()
+        #expect(await rig.snapshot().connection == .bridgeReady)
+        #expect(!(await rig.transport.journal).contains { $0 == .cat("ID;") })
+
+        let session = rig.session
+        let eventTask = Task { () -> SessionEvent? in
+            for await event in await session.events() {
+                if case .radioIdentified = event { return event }
+                if case .radioNotResponding = event { return event }
+            }
+            return nil
+        }
+        for _ in 0..<50 { await Task.yield() }
+
+        await rig.transport.setUSBEnumerated(true)
+        await rig.transport.injectCtrl(
+            CtrlFrame(op: CtrlOp.evtUSB.rawValue, payload: Data([1, 1])))
+        await rig.clock.pump(.seconds(5))
+
+        let snap = await rig.snapshot()
+        #expect(snap.connection == .ready)
+        #expect(snap.radio == .ft891)
+        #expect(snap.frequency == Frequency(hz: 14_074_000))
+        let armed = await rig.transport.armedFailsafe()
+        #expect(armed == Data("TX0;".utf8))
+        await session.disconnect()
+        #expect(await eventTask.value == .radioIdentified(.ft891))
+    }
+
+    @Test func silentRadioAttachedAfterConnectIsReported() async throws {
+        let radio = Ft891Personality()
+        radio.muted = true
+        let rig = Rig(radio: radio, radioID: .ft891)
+        await rig.transport.setUSBEnumerated(false)
+        try await rig.start()
+
+        let session = rig.session
+        let eventTask = Task { () -> SessionEvent? in
+            for await event in await session.events() {
+                if case .radioIdentified = event { return event }
+                if case .radioNotResponding = event { return event }
+            }
+            return nil
+        }
+        for _ in 0..<50 { await Task.yield() }
+
+        await rig.transport.setUSBEnumerated(true)
+        await rig.transport.injectCtrl(
+            CtrlFrame(op: CtrlOp.evtUSB.rawValue, payload: Data([1, 1])))
+        await rig.clock.pump(.seconds(20))
+
+        #expect(await rig.snapshot().connection == .bridgeReady)
+        await session.disconnect()
+        #expect(await eventTask.value == .radioNotResponding)
+    }
+}
+
 @Suite struct PowerAndSettingsSessionTests {
     @Test func powerFilledAtConnect() async throws {
         let rig = Rig(radio: Ft891Personality(), radioID: .ft891)
@@ -716,6 +780,54 @@ struct Rig {
         let line = try #require(lineIndex)
         let probe = try #require(probeIndex)
         #expect(line < probe)
+    }
+
+    /// FT-891 bring-up observation: the bridge's SET_LINE (a CP210x control
+    /// transfer) can take seconds, and the firmware answers nothing else
+    /// until it returns. With a 1 s deadline the app gave up on SET_LINE,
+    /// then on SET_BAUD, and the whole connect failed — every time on a
+    /// slow chip. Now SET_LINE/SET_BAUD wait out the bridge's 5 s USB
+    /// control timeout and the walk still lands on the radio's 4800 baud.
+    @Test func slowLineStateCallDoesNotFailTheConnect() async throws {
+        let radio = Ft891Personality()
+        radio.menuBaud = 4800
+        let rig = Rig(radio: radio, radioID: .ft891)
+        await rig.transport.stallCtrl(at: .setLine)
+
+        let session = rig.session
+        let startTask = Task { try await session.start() }
+        await rig.clock.pump(.seconds(4)) // > the old 1 s CTRL deadline
+        let journalWhileStalled = await rig.transport.journal
+        #expect(journalWhileStalled.contains {
+            if case .ctrl(CtrlOp.setLine.rawValue, _) = $0 { return true }
+            return false
+        })
+        // Nothing may have been given up on while the bridge was blocked.
+        #expect(!journalWhileStalled.contains { $0 == .cat("ID;") })
+
+        await rig.transport.releaseStall()
+        await rig.clock.pump(.seconds(12))
+        try await startTask.value
+
+        let snap = await rig.snapshot()
+        #expect(snap.connection == .ready)
+        #expect(snap.bridge.baud == 4800)
+    }
+
+    @Test func ctrlTimeoutNamesTheOpcode() async throws {
+        var policy = PollingPolicy.default
+        policy.usbControlDeadline = .seconds(1)
+        let rig = Rig(radio: Ft891Personality(), radioID: .ft891,
+                      policy: policy)
+        await rig.transport.stallCtrl(at: .setBaud)
+
+        let session = rig.session
+        let startTask = Task { () -> CATBridgeError? in
+            do { try await session.start(); return nil }
+            catch { return error as? CATBridgeError }
+        }
+        await rig.clock.pump(.seconds(3))
+        #expect(await startTask.value == .timedOut(command: "CTRL SET_BAUD"))
     }
 
     @Test func rtsReassertedOnUSBReattach() async throws {

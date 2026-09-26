@@ -25,6 +25,17 @@ actor ScriptedTransport: BridgeTransport {
     var responseChunkSize: Int = 64
     /// Fail the next N connect() calls.
     var failConnects = 0
+    /// STATUS byte 1: 1 = a radio is enumerated on the bridge's USB.
+    var usbEnumerated = true
+    /// Emulates the firmware's bridge task blocking inside a USB control
+    /// transfer (up to 5 s on a slow CP210x): from the first CTRL frame
+    /// with `stallCtrlOp` until `releaseStall()`, every CTRL reply and
+    /// every CAT write is held, in order, exactly as the real bridge holds
+    /// them behind the blocked call.
+    private var stallCtrlOp: UInt8?
+    private var stalled = false
+    private var heldCtrlReplies: [Data] = []
+    private var heldCATWrites: [Data] = []
 
     init(radio: RadioPersonality, radioID: BridgeRadioID,
          initialBaud: UInt32 = 4800) {
@@ -54,6 +65,14 @@ actor ScriptedTransport: BridgeTransport {
     func writeCAT(_ data: Data) async throws {
         guard connected else { throw CATBridgeError.connectionLost }
         journal.append(.cat(String(decoding: data, as: UTF8.self)))
+        if stalled {
+            heldCATWrites.append(data)
+            return
+        }
+        forwardCAT(data)
+    }
+
+    private func forwardCAT(_ data: Data) {
         // Baud gating: mismatched line coding = the radio hears noise.
         if let menuBaud = radio.menuBaud, menuBaud != appliedBaud { return }
         let reply = radio.feed(data)
@@ -109,6 +128,20 @@ actor ScriptedTransport: BridgeTransport {
     }
 
     func setResponseChunkSize(_ size: Int) { responseChunkSize = size }
+    func setUSBEnumerated(_ on: Bool) { usbEnumerated = on }
+    /// Block the emulated bridge task at the next CTRL frame with `op`.
+    func stallCtrl(at op: CtrlOp) { stallCtrlOp = op.rawValue }
+    /// The blocked call returns: held replies and CAT bytes flow, in order.
+    func releaseStall() {
+        stalled = false
+        stallCtrlOp = nil
+        let replies = heldCtrlReplies
+        let writes = heldCATWrites
+        heldCtrlReplies.removeAll()
+        heldCATWrites.removeAll()
+        for reply in replies { continuation.yield(.ctrlFrame(reply)) }
+        for data in writes { forwardCAT(data) }
+    }
     func setFailConnects(_ count: Int) { failConnects = count }
     func isTransmitting() -> Bool { radio.transmitting }
     func setMuted(_ muted: Bool) { radio.muted = muted }
@@ -141,7 +174,14 @@ actor ScriptedTransport: BridgeTransport {
     }
 
     private func handleCtrl(_ frame: CtrlFrame) {
-        func reply(_ f: CtrlFrame) { continuation.yield(.ctrlFrame(f.encoded)) }
+        if frame.op == stallCtrlOp { stalled = true }
+        func reply(_ f: CtrlFrame) {
+            if stalled {
+                heldCtrlReplies.append(f.encoded)
+            } else {
+                continuation.yield(.ctrlFrame(f.encoded))
+            }
+        }
         func ack() {
             reply(CtrlFrame(op: CtrlOp.ack.rawValue,
                             payload: Data([frame.op, 0x00])))
@@ -174,7 +214,7 @@ actor ScriptedTransport: BridgeTransport {
     private func statusData() -> Data {
         var d = Data()
         d.append(1) // format version
-        d.append(1) // usb enumerated
+        d.append(usbEnumerated ? 1 : 0)
         d.append(radioIDByte)
         d.append(appliedBaud.littleEndianData)
         d.append(UInt32(0).littleEndianData) // drops u2b

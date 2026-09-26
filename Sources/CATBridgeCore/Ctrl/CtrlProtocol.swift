@@ -18,6 +18,23 @@ public enum CtrlOp: UInt8, Sendable, CaseIterable {
     case nak = 0x81
     case evtUSB = 0x82
     case evtOverflow = 0x83
+
+    /// Wire name from `protocol.md` §2, for diagnostics.
+    public var name: String {
+        switch self {
+        case .setBaud: "SET_BAUD"
+        case .getStatus: "GET_STATUS"
+        case .usbReset: "USB_RESET"
+        case .setLine: "SET_LINE"
+        case .purge: "PURGE"
+        case .setFailsafe: "SET_FAILSAFE"
+        case .setSpectrum: "SET_SPECTRUM"
+        case .ack: "ACK"
+        case .nak: "NAK"
+        case .evtUSB: "EVT_USB"
+        case .evtOverflow: "EVT_OVERFLOW"
+        }
+    }
 }
 
 /// Error codes carried in ACK/NAK payloads.

@@ -6,6 +6,7 @@ import SwiftUI
 
 public struct RootView: View {
     @State private var rig = RigController()
+    @Environment(\.scenePhase) private var scenePhase
     @State private var settings = AppSettings.shared
     /// Owned here, not by the WSPR tab: a beacon must keep running — and
     /// keep being visible — when the operator looks at another screen.
@@ -48,6 +49,26 @@ public struct RootView: View {
             #if canImport(CoreBluetooth)
             if rig.lastBridgeID != nil {
                 await rig.connectLast()
+            }
+            #endif
+        }
+        // The bridge takes one central, and every Pocket Cat app on this
+        // device wants it. Whichever app is in front owns the bridge: going
+        // to the background releases it (the firmware failsafe unkeys the
+        // radio if we were transmitting), coming back takes it again. A
+        // backgrounded app that kept its link — or a pending reconnect —
+        // silently locked every sibling app out.
+        .onChange(of: scenePhase) { previous, phase in
+            #if canImport(CoreBluetooth)
+            switch phase {
+            case .background:
+                Task { await rig.disconnect() }
+            case .active where previous == .background:
+                if rig.session == nil, rig.lastBridgeID != nil {
+                    Task { await rig.connectLast() }
+                }
+            default:
+                break
             }
             #endif
         }

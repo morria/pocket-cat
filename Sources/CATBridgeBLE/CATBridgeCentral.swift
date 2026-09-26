@@ -76,14 +76,51 @@ public final class CATBridgeCentral: NSObject, @unchecked Sendable {
         async throws -> TransceiverSession {
         try await waitUntilPoweredOn()
         let peripheral = try queueSyncPeripheral(id: id)
+        if queueSyncHeldByAnotherApp(peripheral) {
+            throw CATBridgeError.bridgeInUse
+        }
         let transport = BLEBridgeTransport(central: self,
                                            peripheral: peripheral,
                                            queue: queue)
         queue.async { self.transports[id] = transport }
         let session = TransceiverSession(transport: transport,
                                          policy: policy)
-        try await session.start()
+        do {
+            try await session.start()
+        } catch {
+            // A failed handshake must not leave the BLE link up behind a
+            // discarded session: the bridge then stops advertising, the
+            // app lists it as "Connected" while showing no session, and
+            // the next attempt shares the peripheral with this zombie —
+            // its late CTRL replies land in the new session's handshake.
+            await session.disconnect()
+            queue.async {
+                if self.transports[id] === transport {
+                    self.transports[id] = nil
+                }
+            }
+            throw error
+        }
         return session
+    }
+
+    /// iOS shares one physical link between every app that connects to a
+    /// peripheral, but `CBPeripheral.state` is per process: a peripheral
+    /// the system lists as connected while ours says `.disconnected` is
+    /// held by another app. (After state restoration our own link shows
+    /// as `.connected`, so a relaunch is not mistaken for a sibling.)
+    private func heldByAnotherApp(_ peripheral: CBPeripheral) -> Bool {
+        guard peripheral.state != .connected else { return false }
+        return manager.retrieveConnectedPeripherals(
+            withServices: [BridgeGATT.service])
+            .contains { $0.identifier == peripheral.identifier }
+    }
+
+    private func queueSyncHeldByAnotherApp(_ peripheral: CBPeripheral)
+        -> Bool {
+        var held = false
+        queue.sync { held = heldByAnotherApp(peripheral) }
+        return held
     }
 
     private func queueSyncPeripheral(id: UUID) throws -> CBPeripheral {
@@ -97,6 +134,11 @@ public final class CATBridgeCentral: NSObject, @unchecked Sendable {
 
     // MARK: - Connection plumbing (used by BLEBridgeTransport)
 
+    /// CoreBluetooth's `connect` never times out on its own: a bridge that
+    /// is connected to some other device (the iPad, say) stops advertising
+    /// and the attempt would wait forever with no error to show.
+    static let connectTimeout: DispatchTimeInterval = .seconds(15)
+
     func establishConnection(to peripheral: CBPeripheral) async throws {
         try await waitUntilPoweredOn()
         try await withCheckedThrowingContinuation {
@@ -106,8 +148,17 @@ public final class CATBridgeCentral: NSObject, @unchecked Sendable {
                     continuation.resume()
                     return
                 }
-                self.connectWaiters[peripheral.identifier] = continuation
+                let id = peripheral.identifier
+                self.connectWaiters[id] = continuation
                 self.manager.connect(peripheral)
+                self.queue.asyncAfter(deadline: .now() + Self.connectTimeout) {
+                    guard let waiter = self.connectWaiters.removeValue(
+                        forKey: id) else { return }
+                    self.manager.cancelPeripheralConnection(peripheral)
+                    waiter.resume(throwing: CATBridgeError.connectionFailed(
+                        "bridge not reachable — is it powered, in range, "
+                        + "and not connected to another device?"))
+                }
             }
         }
     }
@@ -155,10 +206,12 @@ public final class CATBridgeCentral: NSObject, @unchecked Sendable {
         guard manager.state == .poweredOn else { return }
         for peripheral in manager.retrieveConnectedPeripherals(
             withServices: [BridgeGATT.service]) {
-            let bridge = DiscoveredBridge(id: peripheral.identifier,
-                                          name: peripheral.name,
-                                          rssi: nil,
-                                          isAlreadyConnected: true)
+            let bridge = DiscoveredBridge(
+                id: peripheral.identifier,
+                name: peripheral.name,
+                rssi: nil,
+                isAlreadyConnected: true,
+                isHeldByAnotherApp: peripheral.state != .connected)
             for continuation in scanContinuations.values {
                 continuation.yield(bridge)
             }

@@ -325,6 +325,26 @@ Baud probe on `bridgeReady` when `radio_id` is a CP210x profile
 `ID;` doubles as model confirmation; a mismatch between `radio_id` (transport
 level) and `ID;` (protocol level) prefers `ID;` and logs the discrepancy.
 
+CTRL deadlines: 1 s in general (`PollingPolicy.ctrlDeadline`), but `SET_BAUD`
+and `SET_LINE` wait `usbControlDeadline` (6 s). Both make the firmware issue a
+USB control transfer to the radio's serial chip; its host stack allows that
+transfer 5 s and the bridge executes CTRL frames one at a time, so a slow
+CP2105 (observed on the FT-891) holds every later reply behind it. A shorter
+deadline never sped anything up — it desynchronised the walk, because the
+late ACKs still arrived, and with the FT-891's rate at 4800 the step that got
+skipped was the one that would have landed.
+
+Late radio: when `STATUS` says no radio is enumerated, `start()` returns with
+the session in `bridgeReady`. An `EVT_USB(enumerated)` later runs the same
+identify sequence (line state → probe → failsafe → AI → poller) and emits
+`.radioIdentified` on success or `.radioNotResponding` if the probe hears
+nothing, leaving the phase at `bridgeReady`.
+
+`CATBridgeCentral.connect` tears the BLE link down if `start()` throws. A
+half-open link behind a discarded session is worse than none: the bridge stops
+advertising, the app lists it as already connected while showing no session,
+and the next attempt shares the peripheral with the abandoned one.
+
 ## 7. CoreBluetooth Specifics (`CATBridgeBLE`)
 
 - **Write path**: CAT uses write-without-response, throttled by

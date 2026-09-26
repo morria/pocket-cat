@@ -8,6 +8,11 @@ import Foundation
 public enum CATBridgeError: Error, Sendable, Equatable {
     case bluetoothUnavailable(String)
     case bridgeNotFound
+    /// Another process on this device (a sibling Pocket Cat app left in
+    /// the background) holds the bridge's Bluetooth link. The bridge is a
+    /// single-central device with one serial line, so a second session
+    /// would only interleave with the first — refused instead.
+    case bridgeInUse
     case connectionFailed(String)
     case connectionLost
     case pairingRequired
@@ -51,6 +56,14 @@ public enum SessionEvent: Sendable, Equatable {
     /// opened for it. Distinct from `.usbRadioDetached` so an app can say
     /// "unsupported device" instead of the misleading "no radio".
     case usbDeviceUnsupported(BridgeRadioID)
+    /// A radio that attached while the session sat in `.bridgeReady` (no
+    /// radio at connect time) has been identified and the session is
+    /// `.ready`. Apps re-read their radio-specific state on this.
+    case radioIdentified(RadioModel)
+    /// A radio attached after connect, but the CAT probe heard nothing at
+    /// any baud; the session stays `.bridgeReady`. Same guidance as a
+    /// `.radioNotResponding` error from `start()`.
+    case radioNotResponding
 }
 
 // MARK: - Bridge health (from STATUS)
@@ -118,6 +131,14 @@ public struct PollingPolicy: Sendable {
     public var reconnectMaxDelay: Duration = .seconds(8)
     /// Deadline for a CTRL command's ACK/NAK/answer.
     public var ctrlDeadline: Duration = .seconds(1)
+    /// Deadline for CTRL commands the bridge answers only after a USB
+    /// control transfer to the radio's serial chip (`SET_BAUD`,
+    /// `SET_LINE`). The firmware's USB host gives that transfer 5 s and
+    /// executes CTRL frames one at a time, so a slow chip (seen on the
+    /// FT-891's CP2105 at bring-up) holds every later reply behind it.
+    /// Giving up sooner does not speed anything up — it only desynchronises
+    /// the handshake, because the late ACKs still arrive.
+    public var usbControlDeadline: Duration = .seconds(6)
 
     public init() {}
     public static let `default` = PollingPolicy()

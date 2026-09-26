@@ -139,8 +139,10 @@ public final class RigController {
 
     private func ensureCentral() -> CATBridgeCentral {
         if let central { return central }
-        let fresh = CATBridgeCentral(
-            restorationIdentifier: "ftx1.central")
+        // No state restoration: iOS would keep a killed app's pending
+        // bridge connection and relaunch it in the background onto the
+        // bridge, locking out the other Pocket Cat apps on this device.
+        let fresh = CATBridgeCentral()
         central = fresh
         return fresh
     }
@@ -188,6 +190,12 @@ public final class RigController {
         case let .bridgeOverflow(direction, dropped):
             notify("Bridge dropped \(dropped) bytes "
                    + "(\(String(describing: direction))).")
+        case .radioIdentified:
+            // Radio powered up after the bridge connected and the session
+            // has just become ready.
+            Task { await refreshSecondaryState() }
+        case .radioNotResponding:
+            notify(friendlyMessage(for: CATBridgeError.radioNotResponding))
         }
     }
 
@@ -443,6 +451,9 @@ public final class RigController {
             return "Bluetooth is unavailable — check Settings."
         case .bridgeNotFound:
             return "Bridge not found — is it powered and in range?"
+        case .bridgeInUse:
+            return "Another Pocket Cat app on this device is using the "
+                + "bridge. Close it from the app switcher, then reconnect."
         case .pairingRequired:
             return "Pairing required — accept the pairing request."
         case .bondInvalidated:
@@ -454,6 +465,8 @@ public final class RigController {
             // re-flashing) as "Peer removed pairing information".
             return "The bridge lost its pairing (re-flashed?). Forget it "
                 + "in Settings → Bluetooth, then reconnect and re-pair."
+        case let .connectionFailed(reason):
+            return "Bluetooth connection failed: \(reason)"
         case .usbRadioDisconnected:
             return "The radio's USB cable is disconnected from the bridge."
         case .radioNotResponding:

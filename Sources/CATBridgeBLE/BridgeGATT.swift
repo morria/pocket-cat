@@ -38,13 +38,19 @@ public struct DiscoveredBridge: Sendable, Identifiable, Equatable {
     /// stops advertising while connected (esp32s3/docs/protocol.md §1), so
     /// a scan can never see it — it has to be retrieved instead.
     public let isAlreadyConnected: Bool
+    /// True when the existing connection belongs to another process on
+    /// this device, not to this app: `connect` will refuse it with
+    /// `.bridgeInUse` until that app lets go.
+    public let isHeldByAnotherApp: Bool
 
     public init(id: UUID, name: String?, rssi: Int?,
-                isAlreadyConnected: Bool = false) {
+                isAlreadyConnected: Bool = false,
+                isHeldByAnotherApp: Bool = false) {
         self.id = id
         self.name = name
         self.rssi = rssi
         self.isAlreadyConnected = isAlreadyConnected
+        self.isHeldByAnotherApp = isHeldByAnotherApp
     }
 }
 #endif

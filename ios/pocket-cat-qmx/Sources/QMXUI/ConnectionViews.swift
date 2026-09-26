@@ -123,7 +123,14 @@ struct ConnectionSheet: View {
                                 Label(bridge.name ?? "Bridge",
                                       systemImage: "antenna.radiowaves.left.and.right")
                                 Spacer()
-                                if bridge.isAlreadyConnected {
+                                if bridge.isHeldByAnotherApp {
+                                    // Another Pocket Cat app on this
+                                    // device owns the link; connecting
+                                    // would be refused as in use.
+                                    Text("In use by another app")
+                                        .font(.caption)
+                                        .foregroundStyle(.orange)
+                                } else if bridge.isAlreadyConnected {
                                     // Already connected to iOS, so it is
                                     // not advertising and has no RSSI.
                                     Text("Connected")

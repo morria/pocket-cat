@@ -394,6 +394,7 @@ public actor TransceiverSession {
     private var failsafeArmed = false
     private var currentBaud: UInt32 = 0
     private var userDisconnected = false
+    private var identifyingAttachedRadio = false
 
     private var eventTask: Task<Void, Never>?
     private var pollerTask: Task<Void, Never>?
@@ -477,10 +478,16 @@ public actor TransceiverSession {
         setPhase(.bridgeReady)
 
         guard usbEnumerated else { return } // bridge up, no radio: stay here
+        try await identifyRadio(status.radioID)
+    }
 
+    /// Bring an enumerated radio from `.bridgeReady` to `.ready`: line
+    /// state, ID probe, failsafe, AI, poller. Throws with the phase left at
+    /// `.bridgeReady` when the radio is silent, so the link stays usable.
+    private func identifyRadio(_ radioID: BridgeRadioID) async throws {
         await assertLineState()
         setPhase(.identifyingRadio)
-        switch status.radioID {
+        switch radioID {
         case .qmxCDC:
             try await verify(dialect: KenwoodDialect.qmx, exactID: true)
         case .ft891:
@@ -501,6 +508,31 @@ public actor TransceiverSession {
         setPhase(.ready)
         await pollOnce() // immediate first state fill
         await refreshPowerOnce()
+    }
+
+    /// A radio appeared on USB after the session settled in `.bridgeReady`
+    /// (radio off, or cable plugged late — an FT-891 powered up after the
+    /// app connected). Without this the session never probes it, and the
+    /// app sits on "bridge only, no radio" until the operator reconnects.
+    private func identifyAttachedRadio(_ radioID: BridgeRadioID) async {
+        guard case .bridgeReady = model.connection, dialect == nil,
+              !identifyingAttachedRadio else { return }
+        identifyingAttachedRadio = true
+        defer { identifyingAttachedRadio = false }
+        do {
+            try await identifyRadio(radioID)
+            if case .ready = model.connection, let radio = model.radio {
+                emit(.radioIdentified(radio))
+            }
+        } catch {
+            // The bridge link is fine; only the radio failed to answer.
+            // Anything other than a probe still in progress (a user
+            // disconnect mid-probe leaves `.idle`) keeps its phase.
+            guard case .identifyingRadio = model.connection,
+                  !userDisconnected else { return }
+            setPhase(.bridgeReady)
+            emit(.radioNotResponding)
+        }
     }
 
     /// Power changes rarely and mostly through us, so it is read once per
@@ -829,16 +861,26 @@ public actor TransceiverSession {
         }
     }
 
+    /// `SET_BAUD` and `SET_LINE` make the firmware issue a USB control
+    /// transfer to the radio's serial chip and answer only afterwards.
+    private func ctrlDeadline(for op: UInt8) -> Duration {
+        switch CtrlOp(rawValue: op) {
+        case .setBaud, .setLine: policy.usbControlDeadline
+        default: policy.ctrlDeadline
+        }
+    }
+
     private func performCtrl(_ frame: CtrlFrame) async throws -> CtrlReply {
         await acquireCtrl()
         defer { releaseCtrl() }
         let id = UUID()
+        let deadline = ctrlDeadline(for: frame.op)
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
                 ctrlInFlight = CtrlInFlight(id: id, op: frame.op,
                                             continuation: continuation)
                 ctrlInFlight?.deadlineTask = Task {
-                    try? await self.clock.sleep(for: self.policy.ctrlDeadline)
+                    try? await self.clock.sleep(for: deadline)
                     if Task.isCancelled { return }
                     self.ctrlDeadlineFired(id: id)
                 }
@@ -866,8 +908,12 @@ public actor TransceiverSession {
     private func ctrlDeadlineFired(id: UUID) {
         guard let inFlight = ctrlInFlight, inFlight.id == id else { return }
         ctrlInFlight = nil
+        // Name the opcode: "no reply to CTRL" told the operator nothing
+        // about which handshake step the bridge stalled on.
+        let name = CtrlOp(rawValue: inFlight.op)?.name
+            ?? String(format: "op 0x%02X", inFlight.op)
         inFlight.continuation.resume(
-            throwing: CATBridgeError.timedOut(command: "CTRL"))
+            throwing: CATBridgeError.timedOut(command: "CTRL \(name)"))
     }
 
     private func failCtrl(id: UUID, error: CATBridgeError) {
@@ -929,6 +975,8 @@ public actor TransceiverSession {
                     await self.assertLineState()
                     try? await self.ensureFailsafeArmed()
                 }
+            } else {
+                Task { await self.identifyAttachedRadio(radio) }
             }
         case .waiting, .error, .unknown:
             usbEnumerated = false
